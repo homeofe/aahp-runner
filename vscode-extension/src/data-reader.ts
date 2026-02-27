@@ -104,6 +104,87 @@ export function getLastLogLine(repoName: string): string {
   } catch { return '' }
 }
 
+// ── Workspace scanning ───────────────────────────────────────────────────────
+
+export interface WorkspaceProject {
+  name: string
+  repoPath: string
+  manifestPath: string
+  manifest: {
+    aahp_version?: string
+    project: string
+    last_session: {
+      agent: string
+      timestamp: string
+      phase: string
+      duration_minutes: number
+    }
+    quick_context: string
+    tasks?: Record<string, {
+      title: string
+      status: string
+      priority: string
+    }>
+  }
+}
+
+/** Scan workspace folders and their siblings for .ai/handoff/MANIFEST.json */
+export function scanWorkspaceProjects(workspaceFolders: string[]): WorkspaceProject[] {
+  const projects: WorkspaceProject[] = []
+  const seen = new Set<string>()
+
+  for (const folder of workspaceFolders) {
+    // Check the folder itself
+    tryAddProject(folder, projects, seen)
+
+    // Also check sibling folders (common pattern: rootDir contains multiple repos)
+    try {
+      const parent = path.dirname(folder)
+      const siblings = fs.readdirSync(parent)
+      for (const sibling of siblings) {
+        const siblingPath = path.join(parent, sibling)
+        tryAddProject(siblingPath, projects, seen)
+      }
+    } catch { /* parent not readable */ }
+  }
+
+  // Also scan the configured rootDir
+  const config = readConfig()
+  if (config.rootDir) {
+    try {
+      const dirs = fs.readdirSync(config.rootDir)
+      for (const dir of dirs) {
+        const dirPath = path.join(config.rootDir, dir)
+        tryAddProject(dirPath, projects, seen)
+      }
+    } catch { /* rootDir not readable */ }
+  }
+
+  return projects.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function tryAddProject(dirPath: string, projects: WorkspaceProject[], seen: Set<string>): void {
+  if (seen.has(dirPath)) return
+  seen.add(dirPath)
+
+  const manifestPath = path.join(dirPath, '.ai', 'handoff', 'MANIFEST.json')
+  try {
+    if (!fs.existsSync(manifestPath)) return
+    const stat = fs.statSync(dirPath)
+    if (!stat.isDirectory()) return
+
+    const content = fs.readFileSync(manifestPath, 'utf8')
+    const manifest = JSON.parse(content) as WorkspaceProject['manifest']
+
+    projects.push({
+      name: manifest.project || path.basename(dirPath),
+      repoPath: dirPath,
+      manifestPath,
+      manifest,
+    })
+  } catch { /* skip invalid */ }
+}
+
 export function computeSummary(metrics: RunMetric[]): {
   totalRuns: number
   successRate: number

@@ -48,7 +48,13 @@
           "name": "Metrics"
         }
       ]
-    }
+    },
+    "viewsWelcome": [
+      {
+        "view": "aahp.agents",
+        "contents": "Loading AAHP projects...\n[Open Dashboard](command:aahp.openDashboard)\n[Refresh](command:aahp.refreshDashboard)"
+      }
+    ]
   },
   "scripts": {
     "build": "tsc -p ./",
