@@ -20,7 +20,7 @@ function detectBackend(apiKey: string): 'claude-cli' | 'sdk' {
   }
 }
 
-/** Run agent via `claude` CLI (uses Claude Code VS Code auth — no API key needed) */
+/** Run agent via `claude` CLI (uses Claude Code VS Code auth - no API key needed) */
 async function runViaClaudeCLI(
   project: AahpProject,
   taskId: string,
@@ -32,7 +32,7 @@ async function runViaClaudeCLI(
 
   onLog(`\n🤖 Claude Code agent starting on [${taskId}]: ${task.title}`)
   onLog(`   Repo: ${project.repoPath}`)
-  onLog(`   Backend: claude CLI (Claude Code — no API key needed)`)
+  onLog(`   Backend: claude CLI (Claude Code - no API key needed)`)
 
   let output = ''
   let committed = false
@@ -60,7 +60,7 @@ async function runViaClaudeCLI(
 
   if (committed) {
     markTaskDone(project, taskId, task, 1, 'claude-code')
-    onLog(`\n📝 MANIFEST.json updated — [${taskId}] marked done`)
+    onLog(`\n📝 MANIFEST.json updated - [${taskId}] marked done`)
   }
 
   return {
@@ -72,7 +72,7 @@ async function runViaClaudeCLI(
   }
 }
 
-/** Run agent via Anthropic SDK (direct API key) — fallback if claude CLI not available */
+/** Run agent via Anthropic SDK (direct API key) - fallback if claude CLI not available */
 async function runViaSDK(
   project: AahpProject,
   taskId: string,
@@ -139,7 +139,7 @@ async function runViaSDK(
 
   if (committed) {
     markTaskDone(project, taskId, task, turns, 'claude-opus-4-5')
-    onLog(`\n📝 MANIFEST.json updated — [${taskId}] marked done`)
+    onLog(`\n📝 MANIFEST.json updated - [${taskId}] marked done`)
   }
 
   return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200) }
@@ -163,7 +163,7 @@ function markTaskDone(project: AahpProject, taskId: string, task: AahpTask, turn
   saveManifest(project, updated)
 }
 
-/** Main entry point — auto-selects backend */
+/** Main entry point - auto-selects backend */
 export async function runAgent(
   project: AahpProject,
   taskId: string,
@@ -182,7 +182,7 @@ export async function runAgent(
 
   throw new Error(
     'No Claude backend available.\n' +
-    '  Option 1: Install Claude Code extension in VS Code (recommended — no API key needed)\n' +
+    '  Option 1: Install Claude Code extension in VS Code (recommended - no API key needed)\n' +
     '  Option 2: aahp config --api-key "sk-ant-..."'
   )
 }

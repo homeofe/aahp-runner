@@ -39,7 +39,7 @@ program
       const phase = chalk.cyan(`[${project.manifest.last_session.phase}]`)
 
       if (taskCount === 0) {
-        console.log(chalk.gray(`  ${project.name} ${phase} — no ready tasks`))
+        console.log(chalk.gray(`  ${project.name} ${phase} - no ready tasks`))
         continue
       }
 
@@ -101,7 +101,7 @@ program
       console.log(chalk.bold('\nProjects with ready tasks:\n'))
       actionable.forEach((p, i) => {
         const top = getTopTask(p)
-        console.log(`  ${i + 1}. ${chalk.bold(p.name)} — ${top ? `[${top[0]}] ${top[1].title}` : ''}`)
+        console.log(`  ${i + 1}. ${chalk.bold(p.name)} - ${top ? `[${top[0]}] ${top[1].title}` : ''}`)
       })
       const idx = await promptNumber(`\nPick a project (1-${actionable.length}): `, 1, actionable.length)
       const picked = actionable[idx - 1]
@@ -169,7 +169,7 @@ program
           console.log(chalk.green(`\n✅ ${project.name} [${taskId}] completed in ${result.turns} turns`))
         } else {
           console.log(chalk.yellow(`\n⚠️  ${project.name} [${taskId}] finished without committing (${result.turns} turns)`))
-          console.log(chalk.gray('   Check the output above — changes may need manual review'))
+          console.log(chalk.gray('   Check the output above - changes may need manual review'))
         }
       } catch (err) {
         console.error(chalk.red(`\n❌ Agent failed on ${project.name}: ${String(err)}`))
@@ -196,8 +196,8 @@ program
     if (!opts.root && !opts.apiKey) {
       const cfg = loadConfig()
       console.log(chalk.bold('\nCurrent config (~/.aahp-runner.json):'))
-      console.log(`  root:      ${cfg.rootDir ?? '(not set — use AAHP_ROOT env or --root)'}`)
-      console.log(`  apiKey:    ${cfg.apiKey ? '***set***' : '(not set — use ANTHROPIC_API_KEY env)'}`)
+      console.log(`  root:      ${cfg.rootDir ?? '(not set - use AAHP_ROOT env or --root)'}`)
+      console.log(`  apiKey:    ${cfg.apiKey ? '***set***' : '(not set - use ANTHROPIC_API_KEY env)'}`)
       console.log(`  schedule:  ${cfg.scheduledTime ?? '(not scheduled)'}`)
     }
   })
@@ -227,7 +227,7 @@ program
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
     const projects = scanProjects(rootDir)
 
-    console.log(chalk.bold(`\n🤖 AAHP Status — ${rootDir}\n`))
+    console.log(chalk.bold(`\n🤖 AAHP Status - ${rootDir}\n`))
     for (const p of projects) {
       const top = getTopTask(p)
       const phase = chalk.cyan(p.manifest.last_session.phase)
@@ -238,9 +238,104 @@ program
   })
 
 program
-  .name('aahp-runner')
+  .name('aahp')
   .description('Autonomous AAHP agent runner — spawns Claude agents to work through project tasks')
   .version('0.1.0')
+  .addHelpText('after', `
+Examples:
+  aahp                        Guided setup — shows next step automatically
+  aahp list                   See all projects and their top ready task
+  aahp status                 Quick status overview
+  aahp run --all --yes        Spawn agents on ALL projects in parallel (no prompts)
+  aahp run openclaw-ops       Spawn agent on one project
+  aahp config --api-key sk-…  Save Anthropic API key
+  aahp schedule --time 02:00  Register nightly Windows Task Scheduler job
+`)
+
+// ── Default: guided wizard when no command given ──────────────────────────────
+
+program.action(async () => {
+  const config = loadConfig()
+  const rootDir = config.rootDir ?? process.env['AAHP_ROOT'] ?? ''
+
+  console.log(chalk.bold('\n🤖 AAHP Runner\n'))
+
+  // ── Step 1: check root ───────────────────────────────────────────────────────
+  if (!rootDir || rootDir === path.join(os.homedir(), 'Development')) {
+    console.log(chalk.yellow('Step 1 of 3: Set your development root folder'))
+    console.log(chalk.gray('  This is the folder containing all your repos.'))
+    console.log()
+    console.log(chalk.white('  Run:') + chalk.cyan(`  aahp config --root "E:\\_nextcloud.weloveselfmade.com\\_Data\\_Development"`))
+    console.log()
+    return
+  }
+  console.log(chalk.green('✅ Root:') + chalk.gray(` ${rootDir}`))
+
+  // ── Step 2: check claude CLI ─────────────────────────────────────────────────
+  const { execSync } = await import('child_process')
+  let claudeOk = false
+  try { execSync('claude --version', { stdio: 'pipe' }); claudeOk = true } catch {}
+
+  if (!claudeOk) {
+    console.log(chalk.yellow('\nStep 2 of 3: Install Claude Code'))
+    console.log(chalk.gray('  Claude Code is the agent engine. Install it in VS Code:'))
+    console.log()
+    console.log(chalk.white('  1.') + ' Open VS Code Extensions → search "Claude Code" → Install')
+    console.log(chalk.white('  2.') + ' Sign in when prompted')
+    console.log(chalk.white('  3.') + ' Then run: ' + chalk.cyan('aahp'))
+    console.log()
+    return
+  }
+  console.log(chalk.green('✅ Claude Code CLI detected'))
+
+  // ── Step 3: scan projects ────────────────────────────────────────────────────
+  const projects = scanProjects(rootDir)
+  const actionable = projects.filter(p => p.readyTasks.length + p.activeTasks.length > 0)
+
+  if (projects.length === 0) {
+    console.log(chalk.yellow('\nStep 3 of 3: Add AAHP v3 handoff files to your repos'))
+    console.log(chalk.gray('  No repos with .ai/handoff/MANIFEST.json found in:'))
+    console.log(chalk.gray(`  ${rootDir}`))
+    console.log()
+    console.log(chalk.white('  See:') + chalk.cyan('  https://github.com/homeofe/AAHP'))
+    console.log()
+    return
+  }
+  console.log(chalk.green(`✅ ${projects.length} AAHP projects found — ${actionable.length} with ready tasks`))
+
+  if (actionable.length === 0) {
+    console.log(chalk.gray('\n  All tasks are done or blocked. Nothing to run.'))
+    console.log(chalk.gray('  Add new tasks to a MANIFEST.json to get started.'))
+    return
+  }
+
+  // ── All good: show what's ready and the exact command ────────────────────────
+  console.log(chalk.bold('\n📋 Ready to run:\n'))
+  for (const p of actionable) {
+    const top = getTopTask(p)
+    if (!top) continue
+    const [id, task] = top
+    const priorityColor = task.priority === 'high' ? chalk.red : task.priority === 'medium' ? chalk.yellow : chalk.cyan
+    console.log(`  ${chalk.bold(p.name.padEnd(28))} ${priorityColor(`[${id}]`)} ${task.title}`)
+  }
+
+  console.log()
+  console.log(chalk.bold('▶ Next command:'))
+  console.log()
+  console.log('  ' + chalk.bgCyan(chalk.black(' aahp run --all --yes ')) + chalk.gray('  ← spawn all agents in parallel'))
+  console.log()
+  console.log(chalk.gray('  Or pick one repo:'))
+  for (const p of actionable.slice(0, 3)) {
+    console.log(chalk.gray(`    aahp run ${p.name}`))
+  }
+  if (actionable.length > 3) {
+    console.log(chalk.gray(`    … and ${actionable.length - 3} more`))
+  }
+  console.log()
+  console.log(chalk.gray('  Schedule nightly runs:'))
+  console.log(chalk.gray('    aahp schedule --time 02:00'))
+  console.log()
+})
 
 program.parse()
 

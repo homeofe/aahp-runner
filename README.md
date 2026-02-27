@@ -1,6 +1,6 @@
 # aahp-runner
 
-> Autonomous agent runner for AAHP v3 projects. Spawns Claude agents to work through tasks across all your repos — unattended or on-demand.
+> Autonomous agent runner for AAHP v3 projects. Spawns Claude agents to work through tasks across all your repos - unattended or on-demand.
 
 ---
 
@@ -10,8 +10,8 @@
 
 | Package | What it does | When to use |
 |---------|-------------|-------------|
-| **[aahp-orchestrator](https://github.com/homeofe/aahp-orchestrator)** | VS Code extension. Injects AAHP context into Copilot/Claude Code while *you* code. Live status bar, `@aahp` chat, sidebar dashboard. | Every coding session — your human-in-the-loop assistant. |
-| **aahp-runner** ← you are here | Autonomous CLI. Spawns Claude agents that implement tasks, run tests, and commit — no human input needed. Schedulable. | Overnight / CI — your unattended worker. |
+| **[aahp-orchestrator](https://github.com/homeofe/aahp-orchestrator)** | VS Code extension. Injects AAHP context into Copilot/Claude Code while *you* code. Live status bar, `@aahp` chat, sidebar dashboard. | Every coding session - your human-in-the-loop assistant. |
+| **aahp-runner** ← you are here | Autonomous CLI. Spawns Claude agents that implement tasks, run tests, and commit - no human input needed. Schedulable. | Overnight / CI - your unattended worker. |
 
 Together they cover the full AAHP loop: you plan and guide during the day → the runner works through tasks at night → you wake up to committed progress.
 
@@ -80,7 +80,7 @@ For each project+task, the agent:
 2. Implements the task
 3. Runs tests/builds to verify
 4. Commits with a conventional commit message
-5. Updates `.ai/handoff/MANIFEST.json` — marks task done, updates timestamp
+5. Updates `.ai/handoff/MANIFEST.json` - marks task done, updates timestamp
 
 The agent has these tools: `read_file`, `write_file`, `list_dir`, `run_command`, `git_status`, `git_commit`
 
