@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { readLiveSessions, readMetrics, computeSummary, readConfig, getLastLogLine } from './data-reader'
+import { readLiveSessions, readMetrics, computeSummary, readConfig, getLastLogLine, scanWorkspaceProjects } from './data-reader'
 
 export class DashboardPanel {
   private static _panel: vscode.WebviewPanel | undefined
@@ -47,6 +47,8 @@ export class DashboardPanel {
     const summary = computeSummary(metrics)
     const config = readConfig()
     const recent = metrics.slice(-20).reverse()
+    const folders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? []
+    const wsProjects = scanWorkspaceProjects(folders)
 
     // Build agent rows
     const agentRows = sessions.length > 0
@@ -145,6 +147,10 @@ export class DashboardPanel {
 
   <div class="summary">
     <div class="stat">
+      <div class="stat-value">${wsProjects.length}</div>
+      <div class="stat-label">Projects</div>
+    </div>
+    <div class="stat">
       <div class="stat-value">${sessions.length}</div>
       <div class="stat-label">Running</div>
     </div>
@@ -161,6 +167,28 @@ export class DashboardPanel {
       <div class="stat-label">Avg Duration</div>
     </div>
   </div>
+
+  <h2>AAHP Projects (${wsProjects.length})</h2>
+  <table>
+    <tr><th>Project</th><th>Phase</th><th>Tasks</th><th>Last Agent</th><th>Context</th></tr>
+    ${wsProjects.length > 0
+      ? wsProjects.map(p => {
+          const tasks = p.manifest.tasks ?? {}
+          const entries = Object.entries(tasks)
+          const ready = entries.filter(([, t]) => t.status === 'ready').length
+          const done = entries.filter(([, t]) => t.status === 'done').length
+          const total = entries.length
+          return `<tr>
+            <td><strong>${esc(p.name)}</strong></td>
+            <td>${esc(p.manifest.last_session?.phase ?? '-')}</td>
+            <td>${ready} ready / ${done} done / ${total} total</td>
+            <td>${esc(p.manifest.last_session?.agent ?? '-')}</td>
+            <td class="log-line">${esc((p.manifest.quick_context ?? '').slice(0, 60))}</td>
+          </tr>`
+        }).join('\\n')
+      : '<tr><td colspan="5" class="empty">No AAHP projects found. Open a workspace with .ai/handoff/MANIFEST.json</td></tr>'
+    }
+  </table>
 
   <h2>Running Agents</h2>
   <table>
