@@ -121,7 +121,7 @@ async function runViaClaudeCLI(
         '--allowedTools', 'Read,Write,Edit,Bash,Glob,Grep,WebFetch',
         '--output-format', 'text',
       ],
-      { cwd: project.repoPath, shell: false }
+      { cwd: project.repoPath, shell: process.platform === 'win32' }
     )
 
     // Manual timeout - spawn's timeout option is silently ignored for async spawn
