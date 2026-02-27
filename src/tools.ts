@@ -8,10 +8,11 @@ export async function runAsync(
   binary: string,
   args: string[],
   cwd: string,
-  timeoutMs: number = 60000
+  timeoutMs: number = 60000,
+  shell: boolean = process.platform === 'win32'
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   return new Promise((resolve) => {
-    const proc = spawn(binary, args, { cwd, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'] })
+    const proc = spawn(binary, args, { cwd, shell, stdio: ['pipe', 'pipe', 'pipe'] })
     let stdout = ''
     let stderr = ''
     const timer = setTimeout(() => { proc.kill(); resolve({ stdout, stderr, code: null }) }, timeoutMs)
