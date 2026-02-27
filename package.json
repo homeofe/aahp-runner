@@ -8,17 +8,37 @@
     "type": "git",
     "url": "https://github.com/homeofe/aahp-runner.git"
   },
+  "keywords": [
+    "aahp",
+    "agent",
+    "autonomous",
+    "claude",
+    "ai",
+    "runner",
+    "cli",
+    "task-runner"
+  ],
   "type": "module",
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "!dist/**/*.test.*",
+    "README.md"
+  ],
   "bin": {
     "aahp": "./dist/cli.js",
     "aahp-runner": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "scripts": {
     "build": "tsc -p ./",
     "dev": "node --loader ts-node/esm src/cli.ts",
     "start": "node dist/cli.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build && npm run test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.0",

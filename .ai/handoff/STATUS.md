@@ -9,11 +9,12 @@
 ---
 
 <!-- SECTION: summary -->
-aahp-runner v0.1.0 is functional. CLI builds and runs correctly. Three agent backends
-implemented: claude-cli (Claude Code), GitHub Copilot, and Anthropic SDK. Commands:
+aahp-runner v0.1.0 is functional and npm-ready. CLI builds and runs correctly. Three
+agent backends: claude-cli (Claude Code), GitHub Copilot, and Anthropic SDK. Commands:
 list, run, config, schedule, status. Guided wizard for first-time users. Parallel
 agent execution with concurrency limit (--limit). Windows Task Scheduler integration.
-GitHub Actions CI pipeline added (Node 20+22, build validation on push/PR to main).
+GitHub Actions CI pipeline (Node 20+22). 49 Vitest tests. Package configured for npm
+publish (files, engines, keywords, prepublishOnly). Run `npm publish` to release.
 <!-- /SECTION: summary -->
 
 ---
@@ -29,8 +30,9 @@ GitHub Actions CI pipeline added (Node 20+22, build validation on push/PR to mai
 | `aahp run` | ✅ | All three backends functional |
 | `aahp config` | ✅ | Reads/writes ~/.aahp-runner.json |
 | `aahp schedule` | ✅ | Windows Task Scheduler registration |
-| Automated tests | ❌ | Not yet written (T-002) |
+| Automated tests | ✅ | 49 Vitest tests, all passing |
 | CI pipeline | ✅ | GitHub Actions on push/PR, Node 20+22 |
+| `npm pack --dry-run` | ✅ | 16 files, 28.7 kB packed, no test files |
 <!-- /SECTION: build_health -->
 
 ---
@@ -49,8 +51,8 @@ GitHub Actions CI pipeline added (Node 20+22, build validation on push/PR to mai
 | Compiled output | `dist/` | ✅ Up to date | Built from src/ |
 | README | `README.md` | ✅ Complete | Setup, commands, examples |
 | CI pipeline | `.github/workflows/ci.yml` | ✅ Complete | Build on Node 20+22 |
-| Automated tests | `tests/` | ❌ Missing | T-002 |
-| npm publish | (registry) | ❌ Not published | T-003 |
+| Automated tests | `src/*.test.ts` | ✅ Complete | 49 Vitest tests |
+| npm publish config | `package.json` | ✅ Ready | files, engines, keywords, prepublishOnly |
 <!-- /SECTION: components -->
 
 ---
@@ -60,8 +62,6 @@ GitHub Actions CI pipeline added (Node 20+22, build validation on push/PR to mai
 
 | Gap | Severity | Description |
 |-----|----------|-------------|
-| Automated tests | MEDIUM | No unit or integration tests |
-| npm publish | LOW | Package not published to npm registry |
 | Linux/macOS cron | LOW | `aahp schedule` only supports Windows |
 <!-- /SECTION: what_is_missing -->
 
