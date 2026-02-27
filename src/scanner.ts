@@ -61,7 +61,12 @@ export function getTopTask(project: AahpProject): [string, AahpTask] | undefined
 
 export function readHandoffFile(project: AahpProject, name: string): string {
   const p = path.join(project.handoffDir, name)
-  return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''
+  try {
+    return fs.readFileSync(p, 'utf8')
+  } catch {
+    // Return empty string on any error (missing file, permission denied, etc.)
+    return ''
+  }
 }
 
 export function buildSystemPrompt(project: AahpProject, taskId: string, task: AahpTask): string {

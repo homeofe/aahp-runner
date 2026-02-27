@@ -1,5 +1,7 @@
 import { execSync, spawnSync } from 'child_process'
-import type { AahpProject, AahpTask } from './types.js'
+import * as fs from 'fs'
+import * as path from 'path'
+import type { AahpProject, AahpTask, AahpManifest } from './types.js'
 import { buildSystemPrompt, saveManifest } from './scanner.js'
 
 export interface AgentResult {
@@ -10,13 +12,13 @@ export interface AgentResult {
   summary: string
 }
 
-/** Detect which backend to use: claude CLI (Claude Code) > Anthropic SDK (API key) */
-function detectBackend(apiKey: string): 'claude-cli' | 'sdk' {
+/** Detect which backend to use: claude CLI (Claude Code) > Anthropic SDK (API key) > none */
+function detectBackend(apiKey: string): 'claude-cli' | 'sdk' | 'none' {
   try {
     execSync('claude --version', { stdio: 'pipe' })
     return 'claude-cli'
   } catch {
-    return apiKey ? 'sdk' : 'none' as unknown as 'sdk'
+    return apiKey ? 'sdk' : 'none'
   }
 }
 
@@ -53,10 +55,20 @@ async function runViaClaudeCLI(
   output = (result.stdout ?? '') + (result.stderr ?? '')
   onLog('\n' + output)
 
-  committed = output.toLowerCase().includes('git commit') ||
-    output.toLowerCase().includes('committed') ||
-    output.toLowerCase().includes('[main ') ||
-    output.toLowerCase().includes('[master ')
+  // Reliable commit detection: check if a new commit was made in the last 5 minutes
+  try {
+    const recentCommit = execSync(
+      'git log --oneline -1 --since="5 minutes ago"',
+      { cwd: project.repoPath, encoding: 'utf8' }
+    ).trim()
+    committed = recentCommit.length > 0
+  } catch {
+    // Fall back to output heuristic if git check fails
+    committed = output.toLowerCase().includes('git commit') ||
+      output.toLowerCase().includes('committed') ||
+      output.toLowerCase().includes('[main ') ||
+      output.toLowerCase().includes('[master ')
+  }
 
   if (committed) {
     markTaskDone(project, taskId, task, 1, 'claude-code')
@@ -108,7 +120,7 @@ async function runViaSDK(
 
     const response = await (client.messages as any).create({
       model: 'claude-opus-4-5',
-      max_tokens: 8096,
+      max_tokens: 8192,
       system: systemPrompt,
       tools: TOOL_DEFINITIONS,
       messages,
@@ -146,17 +158,27 @@ async function runViaSDK(
 }
 
 function markTaskDone(project: AahpProject, taskId: string, task: AahpTask, turns: number, agentName: string) {
+  // Re-read manifest from disk to avoid overwriting changes made by the agent
+  const manifestPath = path.join(project.handoffDir, 'MANIFEST.json')
+  let currentManifest: AahpManifest
+  try {
+    currentManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as AahpManifest
+  } catch {
+    // Fall back to the in-memory snapshot if disk read fails
+    currentManifest = project.manifest
+  }
+
   const updated = {
-    ...project.manifest,
+    ...currentManifest,
     last_session: {
-      ...project.manifest.last_session,
+      ...currentManifest.last_session,
       agent: agentName,
       timestamp: new Date().toISOString(),
-      phase: project.manifest.last_session.phase,
+      phase: currentManifest.last_session.phase,
       duration_minutes: turns * 2,
     },
     tasks: {
-      ...project.manifest.tasks,
+      ...currentManifest.tasks,
       [taskId]: { ...task, status: 'done' as const, completed: new Date().toISOString() },
     },
   }
@@ -176,10 +198,11 @@ export async function runAgent(
   if (backend === 'claude-cli') {
     return runViaClaudeCLI(project, taskId, task, onLog)
   }
-  if (backend === 'sdk' && apiKey) {
+  if (backend === 'sdk') {
     return runViaSDK(project, taskId, task, apiKey, onLog)
   }
 
+  // backend === 'none' - no CLI and no API key
   throw new Error(
     'No Claude backend available.\n' +
     '  Option 1: Install Claude Code extension in VS Code (recommended - no API key needed)\n' +
