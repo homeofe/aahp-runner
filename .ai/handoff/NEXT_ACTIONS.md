@@ -1,4 +1,4 @@
-# aahp-runner: Next Actions for Incoming Agent
+﻿# aahp-runner: Next Actions for Incoming Agent
 
 > Priority order. Work top-down.
 > Each item should be self-contained - the agent must be able to start without asking questions.
@@ -39,7 +39,7 @@
 - Package name `aahp-runner` may or may not be available
 
 **What to do:**
-1. Check `npm view aahp-runner` - if taken, use `@homeofe/aahp-runner`
+1. Check `npm view aahp-runner` - if taken, use `@elvatis/aahp-runner`
 2. Run `npm run build` to ensure dist/ is up to date
 3. Run `npm publish` (requires npm login with publish access)
 4. Test: `npx aahp-runner --version` from a clean directory
