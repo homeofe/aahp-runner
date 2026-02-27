@@ -76,7 +76,7 @@ export function buildSystemPrompt(project: AahpProject, taskId: string, task: Aa
     .join('\n')
 
   return [
-    `## AAHP v3 Context — ${m.project}`,
+    `## AAHP v3 Context - ${m.project}`,
     `Phase: ${m.last_session.phase}`,
     `Last agent: ${m.last_session.agent} @ ${m.last_session.timestamp}`,
     `Last commit: ${m.last_session.commit}`,
