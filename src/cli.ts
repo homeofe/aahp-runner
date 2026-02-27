@@ -69,9 +69,10 @@ program
   .option('-r, --root <path>', 'Root development folder', DEFAULT_ROOT)
   .option('--all', 'Run all projects with ready tasks sequentially')
   .option('--yes', 'Skip confirmation prompts (for scheduled/unattended runs)')
+  .option('-l, --limit <n>', 'Max agents to run in parallel (0 = unlimited)', '0')
   .option('-k, --api-key <key>', 'Anthropic API key (or set ANTHROPIC_API_KEY env)')
   .action(async (projectName: string | undefined, opts: {
-    root: string; all: boolean; yes: boolean; apiKey?: string
+    root: string; all: boolean; yes: boolean; limit: string; apiKey?: string
   }) => {
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
@@ -109,36 +110,36 @@ program
       targets = [picked]
     }
 
-    // When --all --yes: run all in parallel
+    // When --all --yes: run all in parallel (with optional concurrency limit)
     if (opts.all && opts.yes) {
-      console.log(chalk.bold(`\n🚀 Spawning ${targets.length} agents in parallel...\n`))
+      const maxConcurrent = parseInt(opts.limit, 10) || 0
+      const limitLabel = maxConcurrent > 0 ? ` (max ${maxConcurrent} at a time)` : ' in parallel'
+      console.log(chalk.bold(`\n🚀 Spawning ${targets.length} agents${limitLabel}...\n`))
       targets.forEach(p => {
         const top = getTopTask(p)
         if (top) console.log(chalk.gray(`  ⏳ ${p.name} → [${top[0]}] ${top[1].title}`))
       })
       console.log()
 
-      const results = await Promise.all(
-        targets.map(async project => {
-          const topTask = getTopTask(project)
-          if (!topTask) return
-          const [taskId, task] = topTask
-          try {
-            const result = await runAgent(project, taskId, task, apiKey, msg => {
-              // Prefix each log line with repo name for parallel clarity
-              process.stdout.write(chalk.gray(`[${project.name}] `) + msg + '\n')
-            })
-            if (result.success) {
-              console.log(chalk.green(`✅ ${project.name} [${taskId}] committed`))
-            } else {
-              console.log(chalk.yellow(`⚠️  ${project.name} [${taskId}] no commit detected`))
-            }
-            return result
-          } catch (err) {
-            console.error(chalk.red(`❌ ${project.name}: ${String(err)}`))
+      const results = await runWithLimit(targets, maxConcurrent, async project => {
+        const topTask = getTopTask(project)
+        if (!topTask) return undefined
+        const [taskId, task] = topTask
+        try {
+          const result = await runAgent(project, taskId, task, apiKey, msg => {
+            process.stdout.write(chalk.gray(`[${project.name}] `) + msg + '\n')
+          })
+          if (result.success) {
+            console.log(chalk.green(`✅ ${project.name} [${taskId}] committed`))
+          } else {
+            console.log(chalk.yellow(`⚠️  ${project.name} [${taskId}] no commit detected`))
           }
-        })
-      )
+          return result
+        } catch (err) {
+          console.error(chalk.red(`❌ ${project.name}: ${String(err)}`))
+          return undefined
+        }
+      })
 
       const done = results.filter(r => r?.success).length
       const failed = results.filter(r => r && !r.success).length
@@ -246,7 +247,9 @@ Examples:
   aahp                        Guided setup - shows next step automatically
   aahp list                   See all projects and their top ready task
   aahp status                 Quick status overview
-  aahp run --all --yes        Spawn agents on ALL projects in parallel (no prompts)
+  aahp run --all --yes            Spawn agents on ALL projects in parallel (no prompts)
+  aahp run --all --yes --limit 3  Spawn agents on ALL projects, max 3 at a time
+  aahp run --all --yes --limit 5  Spawn agents on ALL projects, max 5 at a time
   aahp run openclaw-ops       Spawn agent on one project
   aahp config --api-key sk-…  Save Anthropic API key
   aahp schedule --time 02:00  Register nightly Windows Task Scheduler job
@@ -323,6 +326,7 @@ program.action(async () => {
   console.log(chalk.bold('▶ Next command:'))
   console.log()
   console.log('  ' + chalk.bgCyan(chalk.black(' aahp run --all --yes ')) + chalk.gray('  ← spawn all agents in parallel'))
+  console.log('  ' + chalk.gray('aahp run --all --yes --limit 5') + chalk.gray('  ← cap at 5 agents at a time'))
   console.log()
   console.log(chalk.gray('  Or pick one repo:'))
   for (const p of actionable.slice(0, 3)) {
@@ -340,6 +344,44 @@ program.action(async () => {
 program.parse()
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+/** Sliding-window concurrency limiter. maxConcurrent=0 → all in parallel. */
+async function runWithLimit<T, R>(
+  items: T[],
+  maxConcurrent: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  if (maxConcurrent <= 0 || maxConcurrent >= items.length) {
+    return Promise.all(items.map(fn))
+  }
+
+  const results: R[] = []
+  const queue = [...items.entries()]
+  let active = 0
+
+  await new Promise<void>((resolve, reject) => {
+    const next = () => {
+      if (queue.length === 0 && active === 0) { resolve(); return }
+      while (active < maxConcurrent && queue.length > 0) {
+        const entry = queue.shift()!
+        const [idx, item] = entry
+        active++
+        fn(item).then(r => {
+          results[idx] = r
+          active--
+          next()
+        }).catch(err => {
+          active--
+          next()
+          reject(err)
+        })
+      }
+    }
+    next()
+  })
+
+  return results
+}
 
 function promptNumber(question: string, min: number, max: number): Promise<number> {
   return new Promise(resolve => {
