@@ -6,27 +6,6 @@
 
 ---
 
-## T-001: Add GitHub Actions CI pipeline
-
-**Goal:** Validate the TypeScript build and catch regressions automatically on every push.
-
-**Context:**
-- Project uses TypeScript with `npm run build` (tsc)
-- No tests yet, so CI should at minimum validate compilation
-- Repo is at `https://github.com/homeofe/aahp-runner`
-
-**What to do:**
-1. Create `.github/workflows/ci.yml`
-2. Trigger on: push to main, pull_request
-3. Steps: checkout, setup Node.js 20, npm ci, npm run build
-4. Optional: add a lint step if ESLint is configured
-
-**Definition of done:**
-- [ ] `.github/workflows/ci.yml` created
-- [ ] CI passes on GitHub Actions after push
-
----
-
 ## T-002: Add automated tests
 
 **Goal:** Add unit tests covering core logic (scanner, agent dispatch, tool execution).
@@ -102,6 +81,7 @@
 | - | Async parallel spawn | Real parallelism via spawn() instead of execSync |
 | - | --limit flag | Sliding-window concurrency control |
 | - | AAHP handoff files bootstrapped | .ai/handoff/ created (dogfooding) |
+| T-001 | GitHub Actions CI pipeline | `.github/workflows/ci.yml` - build on Node 20+22, push/PR to main |
 
 ---
 

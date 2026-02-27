@@ -6,6 +6,31 @@
 
 ---
 
+## [2026-02-27] Claude Opus 4.6: Add GitHub Actions CI pipeline (T-001)
+
+**Agent:** Claude Opus 4.6
+**Phase:** implement
+**Branch:** main
+**Tasks:** T-001
+
+### What was done
+
+- Created `.github/workflows/ci.yml` - GitHub Actions CI pipeline
+- Triggers on push to main and pull requests to main
+- Matrix build across Node.js 20 and 22
+- Steps: checkout, setup Node.js with npm cache, npm ci, npm run build, verify dist output
+- Explicit `permissions: contents: read` for security
+- Updated all handoff files: MANIFEST.json (T-001 done), STATUS.md, NEXT_ACTIONS.md, LOG.md
+
+### Decisions made
+
+- Used Node.js 20 + 22 matrix (20 is current LTS, 22 is next LTS)
+- Added dist output verification step to catch silent compilation failures
+- No lint step since ESLint is not configured yet
+- No test step since tests don't exist yet (T-002)
+
+---
+
 ## [2026-02-27] Claude Sonnet 4.6: Bootstrap AAHP handoff files
 
 **Agent:** Claude Sonnet 4.6
