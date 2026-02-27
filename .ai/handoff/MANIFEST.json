@@ -3,11 +3,11 @@
   "project": "aahp-runner",
   "last_session": {
     "agent": "claude-code",
-    "session_id": "ci-pipeline-2026-02-27",
-    "timestamp": "2026-02-27T03:09:02.937Z",
-    "commit": "eb2638f",
+    "session_id": "vitest-2026-02-27",
+    "timestamp": "2026-02-27T04:30:00.000Z",
+    "commit": "pending",
     "phase": "implement",
-    "duration_minutes": 2
+    "duration_minutes": 5
   },
   "files": {
     "STATUS.md": {
@@ -53,7 +53,7 @@
       "summary": "4-phase pipeline: research, architect, implement, review"
     }
   },
-  "quick_context": "aahp-runner v0.1.0: autonomous AAHP agent runner. 3 backends (claude-cli, copilot, sdk), 5 commands, parallel execution. CI added. Missing: tests, npm publish.",
+  "quick_context": "aahp-runner v0.1.0: autonomous AAHP agent runner. 3 backends (claude-cli, copilot, sdk), 5 commands, parallel execution. CI and Vitest test suite added (49 tests). Missing: npm publish.",
   "token_budget": {
     "manifest_only": 80,
     "manifest_plus_core": 1200,
@@ -71,10 +71,11 @@
     },
     "T-002": {
       "title": "Add automated tests (Vitest)",
-      "status": "ready",
+      "status": "done",
       "priority": "medium",
       "depends_on": [],
-      "created": "2026-02-27T02:31:15Z"
+      "created": "2026-02-27T02:31:15Z",
+      "completed": "2026-02-27T04:30:00.000Z"
     },
     "T-003": {
       "title": "Publish to npm",
