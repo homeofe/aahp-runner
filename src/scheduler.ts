@@ -10,6 +10,7 @@ export interface RunnerConfig {
   apiKey: string
   scheduledTime?: string  // HH:MM format
   maxConcurrent?: number
+  backend?: 'auto' | 'claude' | 'copilot' | 'sdk'
 }
 
 export function loadConfig(): Partial<RunnerConfig> {

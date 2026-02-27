@@ -1,8 +1,9 @@
-import { execSync, spawnSync } from 'child_process'
+import { execSync, spawn } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { AahpProject, AahpTask, AahpManifest } from './types.js'
 import { buildSystemPrompt, saveManifest } from './scanner.js'
+import { TOOL_DEFINITIONS, toOpenAITools, executeTool } from './tools.js'
 
 export interface AgentResult {
   success: boolean
@@ -12,14 +13,50 @@ export interface AgentResult {
   summary: string
 }
 
-/** Detect which backend to use: claude CLI (Claude Code) > Anthropic SDK (API key) > none */
-function detectBackend(apiKey: string): 'claude-cli' | 'sdk' | 'none' {
+type Backend = 'claude-cli' | 'copilot' | 'sdk' | 'none'
+
+// ── Backend detection ─────────────────────────────────────────────────────────
+
+function detectClaudeCLI(): boolean {
+  try { execSync('claude --version', { stdio: 'pipe' }); return true } catch { return false }
+}
+
+/** Returns GitHub token from `gh auth token`, or empty string if unavailable. */
+function detectCopilotToken(): string {
   try {
-    execSync('claude --version', { stdio: 'pipe' })
-    return 'claude-cli'
-  } catch {
-    return apiKey ? 'sdk' : 'none'
+    return execSync('gh auth token', { stdio: 'pipe', encoding: 'utf8' }).trim()
+  } catch { return '' }
+}
+
+/**
+ * Pick a backend.
+ * explicit 'auto' (or undefined): claude-cli > copilot > sdk > none
+ * explicit 'claude'  → claude-cli only
+ * explicit 'copilot' → copilot only (fails if gh token unavailable)
+ * explicit 'sdk'     → sdk only
+ */
+function resolveBackend(
+  apiKey: string,
+  explicit: 'auto' | 'claude' | 'copilot' | 'sdk' = 'auto'
+): { backend: Backend; copilotToken: string } {
+  if (explicit === 'claude') {
+    return detectClaudeCLI()
+      ? { backend: 'claude-cli', copilotToken: '' }
+      : { backend: 'none', copilotToken: '' }
   }
+  if (explicit === 'sdk') {
+    return { backend: apiKey ? 'sdk' : 'none', copilotToken: '' }
+  }
+  if (explicit === 'copilot') {
+    const token = detectCopilotToken()
+    return token ? { backend: 'copilot', copilotToken: token } : { backend: 'none', copilotToken: '' }
+  }
+  // auto
+  if (detectClaudeCLI()) return { backend: 'claude-cli', copilotToken: '' }
+  const token = detectCopilotToken()
+  if (token) return { backend: 'copilot', copilotToken: token }
+  if (apiKey) return { backend: 'sdk', copilotToken: '' }
+  return { backend: 'none', copilotToken: '' }
 }
 
 /** Run agent via `claude` CLI (uses Claude Code VS Code auth - no API key needed) */
@@ -39,21 +76,31 @@ async function runViaClaudeCLI(
   let output = ''
   let committed = false
 
-  const result = spawnSync(
-    'claude',
-    ['--print', '--dangerously-skip-permissions', '--output-format', 'text'],
-    {
-      cwd: project.repoPath,
-      shell: true,
-      encoding: 'utf8',
-      input: userPrompt,
-      timeout: 10 * 60 * 1000,
-      maxBuffer: 10 * 1024 * 1024,
-    }
-  )
+  await new Promise<void>((resolve) => {
+    // Use async spawn so 9 parallel agents actually run concurrently
+    const proc = spawn(
+      'claude',
+      ['--print', '--dangerously-skip-permissions', '--output-format', 'text'],
+      { cwd: project.repoPath, shell: true, timeout: 10 * 60 * 1000 }
+    )
 
-  output = (result.stdout ?? '') + (result.stderr ?? '')
-  onLog('\n' + output)
+    proc.stdin.write(userPrompt)
+    proc.stdin.end()
+
+    // Stream output in real-time as each chunk arrives
+    proc.stdout.on('data', (chunk: Buffer) => {
+      const text = chunk.toString()
+      output += text
+      onLog(text)
+    })
+
+    proc.stderr.on('data', (chunk: Buffer) => {
+      onLog(chunk.toString())
+    })
+
+    proc.on('close', () => resolve())
+    proc.on('error', (err) => { onLog(`\n❌ spawn error: ${err.message}`); resolve() })
+  })
 
   // Reliable commit detection: check if a new commit was made in the last 5 minutes
   try {
@@ -63,7 +110,6 @@ async function runViaClaudeCLI(
     ).trim()
     committed = recentCommit.length > 0
   } catch {
-    // Fall back to output heuristic if git check fails
     committed = output.toLowerCase().includes('git commit') ||
       output.toLowerCase().includes('committed') ||
       output.toLowerCase().includes('[main ') ||
@@ -92,15 +138,13 @@ async function runViaSDK(
   apiKey: string,
   onLog: (msg: string) => void
 ): Promise<AgentResult> {
-  // Dynamic import so SDK is optional
   const { default: Anthropic } = await import('@anthropic-ai/sdk')
-  const { TOOL_DEFINITIONS, executeTool } = await import('./tools.js')
 
   const client = new Anthropic({ apiKey })
   const systemPrompt = buildSystemPrompt(project, taskId, task)
   const MAX_TURNS = 30
 
-  const messages: InstanceType<typeof Anthropic>['messages'] extends { create: (p: infer P) => unknown } ? P extends { messages: infer M } ? M : never[] : never[] = [
+  const messages: any[] = [
     {
       role: 'user' as const,
       content: `Start working on [${taskId}]: ${task.title}\n\nRead relevant files first, then implement, test, and commit. Update MANIFEST.json when done.`,
@@ -157,6 +201,128 @@ async function runViaSDK(
   return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200) }
 }
 
+// ── GitHub Copilot backend (via GitHub Copilot API - OpenAI-compatible) ───────
+
+/**
+ * Calls the GitHub Copilot chat completions API using an OpenAI-compatible
+ * format. Authentication uses the token from `gh auth token`.
+ *
+ * Endpoint: https://api.githubcopilot.com/chat/completions
+ * Model:    gpt-4o (default) - same model used by GitHub Copilot Chat
+ */
+async function runViaCopilot(
+  project: AahpProject,
+  taskId: string,
+  task: AahpTask,
+  copilotToken: string,
+  onLog: (msg: string) => void
+): Promise<AgentResult> {
+  const systemPrompt = buildSystemPrompt(project, taskId, task)
+  const MAX_TURNS = 30
+  const COPILOT_ENDPOINT = 'https://api.githubcopilot.com/chat/completions'
+  const MODEL = 'gpt-4o'
+
+  const openAITools = toOpenAITools()
+
+  const messages: any[] = [
+    { role: 'system', content: systemPrompt },
+    {
+      role: 'user',
+      content: `Start working on [${taskId}]: ${task.title}\n\nRead relevant files first, then implement, test, and commit. Update MANIFEST.json when done.`,
+    },
+  ]
+
+  let turns = 0
+  let committed = false
+  let finalSummary = ''
+
+  onLog(`\n🤖 GitHub Copilot agent starting on [${taskId}]: ${task.title}`)
+  onLog(`   Backend: GitHub Copilot (${MODEL})`)
+  onLog(`   Repo: ${project.repoPath}`)
+
+  while (turns < MAX_TURNS) {
+    turns++
+    onLog(`\n── Turn ${turns}/${MAX_TURNS} ──`)
+
+    let response: Response
+    try {
+      response = await fetch(COPILOT_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${copilotToken}`,
+          'Content-Type': 'application/json',
+          'Editor-Version': 'aahp-runner/0.1',
+          'Copilot-Integration-Id': 'aahp-runner',
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          messages,
+          tools: openAITools,
+          tool_choice: 'auto',
+          max_tokens: 4096,
+        }),
+      })
+    } catch (err) {
+      onLog(`\n❌ Network error: ${String(err)}`)
+      break
+    }
+
+    if (!response.ok) {
+      const body = await response.text()
+      onLog(`\n❌ Copilot API error ${response.status}: ${body.slice(0, 200)}`)
+      // 401 = token expired/invalid; no point retrying
+      if (response.status === 401) {
+        throw new Error('GitHub Copilot token invalid or expired. Run: gh auth refresh')
+      }
+      break
+    }
+
+    const data = await response.json() as any
+    const choice = data.choices?.[0]
+    if (!choice) break
+
+    const msg = choice.message
+    if (msg.content?.trim()) {
+      onLog(`\n${msg.content}`)
+      finalSummary = msg.content
+    }
+
+    // No tool calls - agent is done
+    if (choice.finish_reason === 'stop' || !msg.tool_calls?.length) {
+      onLog('\n✅ Copilot agent finished.')
+      break
+    }
+
+    // Execute tool calls
+    messages.push({ role: 'assistant', content: msg.content ?? null, tool_calls: msg.tool_calls })
+
+    for (const call of msg.tool_calls) {
+      const fnName: string = call.function.name
+      let fnArgs: Record<string, string> = {}
+      try { fnArgs = JSON.parse(call.function.arguments) } catch { /* use empty args */ }
+
+      onLog(`\n🔧 Tool: ${fnName}(${JSON.stringify(fnArgs).slice(0, 80)})`)
+      const result = executeTool(fnName, fnArgs, project.repoPath, onLog)
+      onLog(`   -> ${result.slice(0, 120)}`)
+
+      if (fnName === 'git_commit' && result.startsWith('OK:')) committed = true
+
+      messages.push({
+        role: 'tool',
+        tool_call_id: call.id,
+        content: result,
+      })
+    }
+  }
+
+  if (committed) {
+    markTaskDone(project, taskId, task, turns, `github-copilot/${MODEL}`)
+    onLog(`\n📝 MANIFEST.json updated - [${taskId}] marked done`)
+  }
+
+  return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200) }
+}
+
 function markTaskDone(project: AahpProject, taskId: string, task: AahpTask, turns: number, agentName: string) {
   // Re-read manifest from disk to avoid overwriting changes made by the agent
   const manifestPath = path.join(project.handoffDir, 'MANIFEST.json')
@@ -185,27 +351,29 @@ function markTaskDone(project: AahpProject, taskId: string, task: AahpTask, turn
   saveManifest(project, updated)
 }
 
-/** Main entry point - auto-selects backend */
+/** Main entry point - selects backend based on explicit preference or auto-detection */
 export async function runAgent(
   project: AahpProject,
   taskId: string,
   task: AahpTask,
   apiKey: string,
-  onLog: (msg: string) => void
+  onLog: (msg: string) => void,
+  explicitBackend: 'auto' | 'claude' | 'copilot' | 'sdk' = 'auto'
 ): Promise<AgentResult> {
-  const backend = detectBackend(apiKey)
+  const { backend, copilotToken } = resolveBackend(apiKey, explicitBackend)
 
-  if (backend === 'claude-cli') {
-    return runViaClaudeCLI(project, taskId, task, onLog)
-  }
-  if (backend === 'sdk') {
-    return runViaSDK(project, taskId, task, apiKey, onLog)
-  }
+  if (backend === 'claude-cli') return runViaClaudeCLI(project, taskId, task, onLog)
+  if (backend === 'copilot') return runViaCopilot(project, taskId, task, copilotToken, onLog)
+  if (backend === 'sdk') return runViaSDK(project, taskId, task, apiKey, onLog)
 
-  // backend === 'none' - no CLI and no API key
-  throw new Error(
-    'No Claude backend available.\n' +
-    '  Option 1: Install Claude Code extension in VS Code (recommended - no API key needed)\n' +
-    '  Option 2: aahp config --api-key "sk-ant-..."'
-  )
+  // backend === 'none'
+  const hint = explicitBackend === 'copilot'
+    ? 'GitHub Copilot token not found. Make sure you are signed in: gh auth login'
+    : explicitBackend === 'claude'
+      ? 'Claude Code CLI not found. Install the Claude Code VS Code extension.'
+      : 'No agent backend available.\n' +
+        '  Option 1: Install Claude Code extension in VS Code (no API key needed)\n' +
+        '  Option 2: Sign in to GitHub CLI - gh auth login  (uses your Copilot subscription)\n' +
+        '  Option 3: aahp config --api-key "sk-ant-..."  (Anthropic API key)'
+  throw new Error(hint)
 }

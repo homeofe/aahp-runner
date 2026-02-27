@@ -73,6 +73,24 @@ export const TOOL_DEFINITIONS = [
   },
 ] as const
 
+// ── OpenAI-compatible tool definitions (for Copilot backend) ─────────────────
+
+/** Convert Anthropic tool definitions to OpenAI function-calling format. */
+export function toOpenAITools(): object[] {
+  return TOOL_DEFINITIONS.map(t => ({
+    type: 'function',
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: {
+        type: 'object',
+        properties: (t.input_schema as any).properties ?? {},
+        required: (t.input_schema as any).required ?? [],
+      },
+    },
+  }))
+}
+
 // ── Tool executor ─────────────────────────────────────────────────────────────
 
 export function executeTool(
