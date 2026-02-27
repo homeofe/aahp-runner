@@ -8,7 +8,7 @@ import * as readline from 'readline'
 import { scanProjects, getTopTask } from './scanner.js'
 import { runAgent } from './agent.js'
 import { runAsync } from './tools.js'
-import { loadConfig, saveConfig, registerWindowsScheduler } from './scheduler.js'
+import { loadConfig, saveConfig, registerScheduler, unregisterScheduler } from './scheduler.js'
 import { StatusBoard, AgentStatus, LOG_DIR, agentLogPath } from './status-board.js'
 
 const DEFAULT_ROOT = process.env['AAHP_ROOT'] ?? path.join(os.homedir(), 'Development')
@@ -274,14 +274,19 @@ program
 
 program
   .command('schedule')
-  .description('Register a daily Windows Task Scheduler job to run all projects')
+  .description('Register a daily scheduled job (cron on Linux/macOS, Task Scheduler on Windows)')
   .option('--time <HH:MM>', 'Time to run daily', '02:00')
   .option('-r, --root <path>', 'Root development folder')
-  .action((opts: { time: string; root?: string }) => {
+  .option('--remove', 'Remove the scheduled job instead of creating one')
+  .action((opts: { time: string; root?: string; remove?: boolean }) => {
+    if (opts.remove) {
+      unregisterScheduler()
+      return
+    }
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
     saveConfig({ scheduledTime: opts.time, rootDir })
-    registerWindowsScheduler(opts.time, rootDir)
+    registerScheduler(opts.time, rootDir)
   })
 
 // ── logs — tail an agent's log file ──────────────────────────────────────────
@@ -452,7 +457,8 @@ Examples:
   aahp logs openclaw-ops -f          Stream agent log live (tail -f)
   aahp config --backend copilot      Save default backend
   aahp config --api-key sk-ant-...   Save Anthropic API key
-  aahp schedule --time 02:00         Register nightly Windows Task Scheduler job
+  aahp schedule --time 02:00         Register nightly scheduled job (cron or Task Scheduler)
+  aahp schedule --remove             Remove the scheduled job
 `)
 
 // ── Default: guided wizard when no command given ──────────────────────────────
@@ -536,7 +542,7 @@ program.action(async () => {
     console.log(chalk.gray(`    … and ${actionable.length - 3} more`))
   }
   console.log()
-  console.log(chalk.gray('  Schedule nightly runs:'))
+  console.log(chalk.gray('  Schedule nightly runs (cron on Linux/macOS, Task Scheduler on Windows):'))
   console.log(chalk.gray('    aahp schedule --time 02:00'))
   console.log()
 })
