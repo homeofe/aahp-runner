@@ -1,4 +1,4 @@
-# aahp-runner
+﻿# aahp-runner
 
 > Autonomous agent runner for AAHP v3 projects. Spawns Claude agents to work through tasks across all your repos - unattended or on-demand.
 
@@ -10,7 +10,7 @@
 
 | Package | What it does | When to use |
 |---------|-------------|-------------|
-| **[aahp-orchestrator](https://github.com/homeofe/aahp-orchestrator)** | VS Code extension. Injects AAHP context into Copilot/Claude Code while *you* code. Live status bar, `@aahp` chat, sidebar dashboard. | Every coding session - your human-in-the-loop assistant. |
+| **[aahp-orchestrator](https://github.com/elvatis/aahp-orchestrator)** | VS Code extension. Injects AAHP context into Copilot/Claude Code while *you* code. Live status bar, `@aahp` chat, sidebar dashboard. | Every coding session - your human-in-the-loop assistant. |
 | **aahp-runner** ← you are here | Autonomous CLI. Spawns Claude agents that implement tasks, run tests, and commit - no human input needed. Schedulable. | Overnight / CI - your unattended worker. |
 
 Together they cover the full AAHP loop: you plan and guide during the day → the runner works through tasks at night → you wake up to committed progress.
@@ -112,10 +112,10 @@ aahp-runner schedule --remove
 
 - Node.js ≥ 20
 - Anthropic API key (Claude claude-opus-4-5)
-- Repos with AAHP v3 `.ai/handoff/MANIFEST.json` ([spec](https://github.com/homeofe/AAHP))
+- Repos with AAHP v3 `.ai/handoff/MANIFEST.json` ([spec](https://github.com/elvatis/AAHP))
 
 ---
 
 ## License
 
-MIT © [homeofe](https://github.com/homeofe)
+MIT © [elvatis](https://github.com/elvatis)

@@ -1,9 +1,9 @@
-{
+﻿{
   "name": "aahp-dashboard",
   "displayName": "AAHP Dashboard",
   "description": "Monitor AAHP agent runs, metrics, and resource usage directly in VS Code",
   "version": "0.1.0",
-  "publisher": "homeofe",
+  "publisher": "elvatis",
   "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"

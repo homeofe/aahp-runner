@@ -1,4 +1,4 @@
-# aahp-runner: Agent Journal
+﻿# aahp-runner: Agent Journal
 
 > **Append-only.** Never delete or edit past entries.
 > Every agent session adds a new entry at the top.
@@ -56,7 +56,7 @@
 
 ---
 
-## [prior sessions] homeofe: Initial aahp-runner implementation
+## [prior sessions] elvatis: Initial aahp-runner implementation
 
 **Agent:** (human + AI assisted)
 **Phase:** implementation

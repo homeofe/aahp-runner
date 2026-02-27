@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 import { program } from 'commander'
 import chalk from 'chalk'
 import * as path from 'path'
@@ -720,7 +720,7 @@ program.action(async () => {
     console.log(chalk.gray('  No repos with .ai/handoff/MANIFEST.json found in:'))
     console.log(chalk.gray(`  ${rootDir}`))
     console.log()
-    console.log(chalk.white('  See:') + chalk.cyan('  https://github.com/homeofe/AAHP'))
+    console.log(chalk.white('  See:') + chalk.cyan('  https://github.com/elvatis/AAHP'))
     console.log()
     return
   }

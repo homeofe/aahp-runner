@@ -1,4 +1,4 @@
-import * as vscode from 'vscode'
+﻿import * as vscode from 'vscode'
 import { readLiveSessions, getLastLogLine, scanWorkspaceProjects, type WorkspaceProject } from './data-reader'
 
 export class AgentTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
@@ -120,7 +120,7 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<vscode.TreeIte
       setup.command = {
         command: 'vscode.open',
         title: 'Open AAHP docs',
-        arguments: [vscode.Uri.parse('https://github.com/homeofe/AAHP')],
+        arguments: [vscode.Uri.parse('https://github.com/elvatis/AAHP')],
       }
       items.push(setup)
     }
