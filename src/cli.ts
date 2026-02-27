@@ -239,11 +239,11 @@ program
 
 program
   .name('aahp')
-  .description('Autonomous AAHP agent runner — spawns Claude agents to work through project tasks')
+  .description('Autonomous AAHP agent runner - spawns Claude agents to work through project tasks')
   .version('0.1.0')
   .addHelpText('after', `
 Examples:
-  aahp                        Guided setup — shows next step automatically
+  aahp                        Guided setup - shows next step automatically
   aahp list                   See all projects and their top ready task
   aahp status                 Quick status overview
   aahp run --all --yes        Spawn agents on ALL projects in parallel (no prompts)
@@ -301,7 +301,7 @@ program.action(async () => {
     console.log()
     return
   }
-  console.log(chalk.green(`✅ ${projects.length} AAHP projects found — ${actionable.length} with ready tasks`))
+  console.log(chalk.green(`✅ ${projects.length} AAHP projects found - ${actionable.length} with ready tasks`))
 
   if (actionable.length === 0) {
     console.log(chalk.gray('\n  All tasks are done or blocked. Nothing to run.'))
