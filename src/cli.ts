@@ -13,6 +13,29 @@ import { StatusBoard, AgentStatus, LOG_DIR, agentLogPath } from './status-board.
 
 const DEFAULT_ROOT = process.env['AAHP_ROOT'] ?? path.join(os.homedir(), 'Development')
 
+/** Read ~/.aahp/sessions.json written by aahp-orchestrator SessionMonitor or aahp-runner */
+function readLiveSessions(): Array<{ repoPath: string; repoName: string; taskId: string; taskTitle: string; backend: string; startedAt: string }> {
+  const lockFile = path.join(os.homedir(), '.aahp', 'sessions.json')
+  try {
+    if (!fs.existsSync(lockFile)) return []
+    const data = JSON.parse(fs.readFileSync(lockFile, 'utf8')) as { sessions?: unknown[] }
+    return Array.isArray(data.sessions) ? data.sessions as ReturnType<typeof readLiveSessions> : []
+  } catch { return [] }
+}
+
+/** Read last line from today's agent log for a repo */
+function getLastLogLine(repoName: string): string {
+  try {
+    const stamp = new Date().toISOString().slice(0, 10)
+    const logPath = path.join(os.homedir(), '.aahp', 'logs', `${repoName}-${stamp}.log`)
+    if (!fs.existsSync(logPath)) return ''
+    const content = fs.readFileSync(logPath, 'utf8')
+    const lines = content.split('\n').filter(l => l.trim() && !l.startsWith('='))
+    const last = lines[lines.length - 1] ?? ''
+    return last.replace(/\s+/g, ' ').slice(0, 50)
+  } catch { return '' }
+}
+
 // ── list ──────────────────────────────────────────────────────────────────────
 
 program
@@ -339,25 +362,68 @@ program
     }
   })
 
-// ── status (quick overview, no agent) ────────────────────────────────────────
+// ── status — live agents + MANIFEST overview ──────────────────────────────────
 
 program
   .command('status')
-  .description('Quick status overview across all AAHP projects')
+  .description('Show live running agents and quick status overview')
   .option('-r, --root <path>', 'Root development folder', DEFAULT_ROOT)
-  .action((opts: { root: string }) => {
+  .option('-w, --watch', 'Refresh every 3 seconds (Ctrl+C to stop)')
+  .action(async (opts: { root: string; watch: boolean }) => {
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
-    const projects = scanProjects(rootDir)
 
-    console.log(chalk.bold(`\n🤖 AAHP Status - ${rootDir}\n`))
-    for (const p of projects) {
-      const top = getTopTask(p)
-      const phase = chalk.cyan(p.manifest.last_session.phase)
-      const taskLine = top ? chalk.yellow(`[${top[0]}] ${top[1].title}`) : chalk.gray('all done')
-      console.log(`  ${chalk.bold(p.name.padEnd(30))} ${phase.padEnd(20)} ${taskLine}`)
+    const print = (): void => {
+      const live = readLiveSessions()
+      const projects = scanProjects(rootDir)
+      const liveNames = new Set(live.map(s => s.repoName ?? path.basename(s.repoPath)))
+
+      // ── Live running agents section ─────────────────────────────────────────
+      if (live.length > 0) {
+        console.log(chalk.bold.cyan(`\n🔄 Running agents (${live.length})\n`))
+        for (const s of live) {
+          const name = (s.repoName ?? path.basename(s.repoPath)).padEnd(28)
+          const task = chalk.yellow(`[${s.taskId ?? '?'}] ${(s.taskTitle ?? '').slice(0, 40)}`)
+          const backend = chalk.gray(`(${s.backend ?? 'auto'})`)
+          const elapsed = s.startedAt
+            ? chalk.gray(Math.floor((Date.now() - new Date(s.startedAt).getTime()) / 1000) + 's')
+            : ''
+          const lastLine = getLastLogLine(s.repoName ?? path.basename(s.repoPath))
+          const hint = lastLine ? chalk.gray(' · ' + lastLine) : ''
+          console.log(`  ${chalk.cyan('🔄')} ${chalk.white(name)} ${task} ${elapsed} ${backend}${hint}`)
+        }
+      } else {
+        console.log(chalk.gray('\n  No agents currently running'))
+        console.log(chalk.gray('  Start with: aahp run --all --yes\n'))
+      }
+
+      // ── Static MANIFEST overview ────────────────────────────────────────────
+      console.log(chalk.bold(`\n📋 Project overview — ${rootDir}\n`))
+      for (const p of projects) {
+        const top = getTopTask(p)
+        const isLive = liveNames.has(p.name)
+        const phase = chalk.cyan(p.manifest.last_session.phase)
+        const taskLine = top ? chalk.yellow(`[${top[0]}] ${top[1].title}`) : chalk.gray('all done')
+        const indicator = isLive ? chalk.cyan(' 🔄') : '   '
+        console.log(`${indicator} ${chalk.bold(p.name.padEnd(28))} ${phase.padEnd(20)} ${taskLine}`)
+      }
+      console.log()
     }
-    console.log()
+
+    if (opts.watch) {
+      // Clear and reprint every 3s
+      const draw = (): void => {
+        process.stdout.write('\x1Bc')  // clear screen
+        print()
+        console.log(chalk.gray('  Refreshing every 3s — Ctrl+C to stop'))
+      }
+      draw()
+      const interval = setInterval(draw, 3000)
+      process.on('SIGINT', () => { clearInterval(interval); process.exit(0) })
+      await new Promise(() => {})
+    } else {
+      print()
+    }
   })
 
 program
@@ -374,7 +440,8 @@ Backends:
 Examples:
   aahp                               Guided setup - shows next step automatically
   aahp list                          See all projects and their top ready task
-  aahp status                        Quick status overview
+  aahp status                        Live agents + project overview
+  aahp status -w                     Watch mode: refresh every 3s
   aahp run --all --yes               Spawn agents on ALL projects (auto backend)
   aahp run --all --yes --backend copilot    Use GitHub Copilot for all tasks
   aahp run --all --yes --backend claude     Use Claude Code for all tasks

@@ -2,12 +2,12 @@
   "aahp_version": "3.0",
   "project": "aahp-runner",
   "last_session": {
-    "agent": "claude-opus-4.6",
+    "agent": "claude-code",
     "session_id": "ci-pipeline-2026-02-27",
-    "timestamp": "2026-02-27T12:00:00Z",
+    "timestamp": "2026-02-27T03:09:02.937Z",
     "commit": "eb2638f",
     "phase": "implement",
-    "duration_minutes": 5
+    "duration_minutes": 2
   },
   "files": {
     "STATUS.md": {
@@ -67,7 +67,7 @@
       "priority": "medium",
       "depends_on": [],
       "created": "2026-02-27T02:31:15Z",
-      "completed": "2026-02-27T12:00:00Z"
+      "completed": "2026-02-27T03:09:02.937Z"
     },
     "T-002": {
       "title": "Add automated tests (Vitest)",
