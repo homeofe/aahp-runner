@@ -16,8 +16,8 @@
 | Tool definitions | `src/tools.ts` | ✅ | manual | ✅ | read/write/list/run/git |
 | TypeScript types | `src/types.ts` | ✅ | n/a | ✅ | Interfaces only |
 | README | `README.md` | ✅ | n/a | ✅ | Complete |
-| CI Pipeline | `.github/workflows/` | ❌ | n/a | ❌ | T-001: not yet created |
-| Test suite | `tests/` | ❌ | ❌ | ❌ | T-002: not yet written |
+| CI Pipeline | `src/cli.ts` | ✅ | ✅ | ✅ | `.github/workflows/ci.yml` |
+| Test suite | `src/*.test.ts` | ✅ | ✅ 67 | ✅ | 67 Vitest tests
 
 **Legend:** ✅ passing / complete - ❌ failing / missing - ⏳ pending - manual = tested manually only
 
@@ -27,10 +27,10 @@
 
 | Suite | Tests | Status | Last Run |
 |-------|-------|--------|----------|
-| Unit tests | 0 | ❌ Not written | Never |
+| Unit tests (Vitest) | 67 | ✅ All passing | 2026-02-27 |
 | Build (tsc) | - | ✅ Passes | 2026-02-27 |
 
-**Total: 0 automated tests**
+**Total: 67 automated tests**
 
 ---
 
@@ -39,8 +39,8 @@
 | Component | Status | Blocker |
 |-----------|--------|---------|
 | GitHub repo | ✅ | - |
-| GitHub Actions CI | ❌ Not created | T-001 |
-| npm package | ❌ Not published | T-003 |
+| GitHub Actions CI | ✅ Created and running | - |
+| npm package | ✅ Published | - |
 
 ---
 
@@ -48,9 +48,9 @@
 
 | Field | Value |
 |-------|-------|
-| Current task | T-001 (CI pipeline) |
-| Phase | implementation |
-| Last completed | (initial implementation) |
+| Current task | All tasks complete |
+| Phase | done |
+| Last completed | T-004: Add Linux/macOS cron support (2026-02-27) |
 | Rate limit | None |
 
 ---
@@ -59,10 +59,7 @@
 
 | ID | Task | Priority | Depends on | Ready? |
 |----|------|----------|-----------|--------|
-| T-001 | Add GitHub Actions CI pipeline | MEDIUM | - | ✅ Ready |
-| T-002 | Add automated tests | MEDIUM | - | ✅ Ready |
-| T-003 | Publish to npm | LOW | - | ✅ Ready |
-| T-004 | Add Linux/macOS cron support | LOW | - | ✅ Ready |
+| - | (no open tasks) | - | - | - |
 
 ## Completed Tasks
 
@@ -70,6 +67,10 @@
 |----|------|-----------|
 | - | Initial implementation | 2026-02-26 |
 | - | AAHP handoff files bootstrapped | 2026-02-27 |
+| T-001 | Add GitHub Actions CI pipeline | 2026-02-27 |
+| T-002 | Add automated tests (67 Vitest tests) | 2026-02-27 |
+| T-003 | Publish to npm | 2026-02-27 |
+| T-004 | Add Linux/macOS cron support | 2026-02-27 |
 
 ---
 

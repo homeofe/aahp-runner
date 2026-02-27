@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 import { program } from 'commander'
 import chalk from 'chalk'
 import * as path from 'path'
@@ -10,6 +10,8 @@ import { runAgent } from './agent.js'
 import { runAsync } from './tools.js'
 import { loadConfig, saveConfig, registerScheduler, unregisterScheduler } from './scheduler.js'
 import { StatusBoard, AgentStatus, LOG_DIR, agentLogPath } from './status-board.js'
+import { recordMetric, loadMetrics, summarizeMetrics, metricsFilePath, getAvgDuration } from './metrics-store.js'
+import { sendAlert } from './alerting.js'
 
 const DEFAULT_ROOT = process.env['AAHP_ROOT'] ?? path.join(os.homedir(), 'Development')
 
@@ -97,13 +99,15 @@ program
   .option('-l, --limit <n>', 'Max agents to run in parallel (0 = unlimited)', '0')
   .option('-k, --api-key <key>', 'Anthropic API key (or set ANTHROPIC_API_KEY env)')
   .option('-b, --backend <backend>', 'Agent backend: auto (default), claude, copilot, sdk', 'auto')
+  .option('-t, --timeout <minutes>', 'Per-agent timeout in minutes (default: 10)', '10')
   .action(async (projectName: string | undefined, opts: {
-    root: string; all: boolean; yes: boolean; limit: string; apiKey?: string; backend: string
+    root: string; all: boolean; yes: boolean; limit: string; apiKey?: string; backend: string; timeout: string
   }) => {
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
     const apiKey = opts.apiKey ?? process.env['ANTHROPIC_API_KEY'] ?? config.apiKey ?? ''
     const backend = (opts.backend ?? config.backend ?? 'auto') as 'auto' | 'claude' | 'copilot' | 'sdk'
+    const timeoutMinutes = parseInt(opts.timeout, 10) || config.timeoutMinutes || 10
 
     // No key needed if claude CLI is available (Claude Code VS Code extension)
     const projects = scanProjects(rootDir)
@@ -168,6 +172,13 @@ program
 
         st.state = 'running'
         st.startedAt = new Date()
+
+        // Set ETA from historical average
+        const avgMs = getAvgDuration(project.name)
+        if (avgMs) {
+          st.estimatedEndAt = new Date(Date.now() + avgMs)
+        }
+
         board.refresh()
 
         try {
@@ -175,31 +186,85 @@ program
             // Only update the last meaningful line for the status board (skip blanks)
             const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
             if (line) st.lastLine = line.trim()
+
+            // Extract turn progress from SDK/Copilot output (e.g., "-- Turn 5/30 --")
+            const turnMatch = msg.match(/Turn (\d+)\/(\d+)/)
+            if (turnMatch) {
+              st.currentTurn = parseInt(turnMatch[1]!, 10)
+              st.maxTurns = parseInt(turnMatch[2]!, 10)
+            }
+
             board.refresh()
-          }, backend)
+          }, backend, timeoutMinutes)
 
           st.state = result.success ? 'done' : 'failed'
           st.committed = result.committed
           st.finishedAt = new Date()
           st.lastLine = result.success ? `committed` : 'no commit detected'
           board.refresh()
+
+          recordMetric({
+            timestamp: new Date().toISOString(),
+            repo: project.name,
+            taskId,
+            taskTitle: task.title,
+            backend,
+            durationMs: st.finishedAt.getTime() - (st.startedAt?.getTime() ?? st.finishedAt.getTime()),
+            turns: result.turns,
+            success: result.success,
+            committed: result.committed,
+            cpuAvg: result.cpuAvg,
+            memPeakMB: result.memPeakMB,
+          })
+
           return result
         } catch (err) {
           st.state = 'failed'
           st.finishedAt = new Date()
           st.lastLine = String(err).slice(0, 60)
           board.refresh()
+
+          recordMetric({
+            timestamp: new Date().toISOString(),
+            repo: project.name,
+            taskId,
+            taskTitle: task.title,
+            backend,
+            durationMs: st.finishedAt.getTime() - (st.startedAt?.getTime() ?? st.finishedAt.getTime()),
+            turns: 0,
+            success: false,
+            committed: false,
+          })
+
           return undefined
         }
       })
 
       board.finish()
 
+      // Send alerts for failed agents
+      const failedStatuses = statuses.filter(s => s.state === 'failed')
+      const doneStatuses = statuses.filter(s => s.state === 'done')
+      for (const s of failedStatuses) {
+        sendAlert(config.alerts, 'agent_failed', {
+          repo: s.repo,
+          taskId: s.taskId,
+          success: false,
+          summary: s.lastLine,
+        })
+      }
+
+      // Send all_done alert
+      sendAlert(config.alerts, 'all_done', {
+        totalDone: doneStatuses.length,
+        totalFailed: failedStatuses.length,
+        summary: `${doneStatuses.length} committed, ${failedStatuses.length} failed`,
+      })
+
       // Show log file hints for any failures
-      const failed = statuses.filter(s => s.state === 'failed')
-      if (failed.length > 0) {
+      if (failedStatuses.length > 0) {
         console.log(chalk.gray('\nTo inspect failed agents:'))
-        for (const s of failed) {
+        for (const s of failedStatuses) {
           console.log(chalk.gray(`  tail -f "${s.logFile}"`))
         }
       }
@@ -219,8 +284,23 @@ program
         if (!answer) { console.log(chalk.gray('Skipped.')); continue }
       }
 
+      const seqStart = Date.now()
       try {
-        const result = await runAgent(project, taskId, task, apiKey, msg => console.log(chalk.gray(msg)), backend)
+        const result = await runAgent(project, taskId, task, apiKey, msg => console.log(chalk.gray(msg)), backend, timeoutMinutes)
+
+        recordMetric({
+          timestamp: new Date().toISOString(),
+          repo: project.name,
+          taskId,
+          taskTitle: task.title,
+          backend,
+          durationMs: Date.now() - seqStart,
+          turns: result.turns,
+          success: result.success,
+          committed: result.committed,
+          cpuAvg: result.cpuAvg,
+          memPeakMB: result.memPeakMB,
+        })
 
         if (result.success) {
           console.log(chalk.green(`\n✅ ${project.name} [${taskId}] completed in ${result.turns} turns`))
@@ -229,6 +309,17 @@ program
           console.log(chalk.gray('   Check the output above - changes may need manual review'))
         }
       } catch (err) {
+        recordMetric({
+          timestamp: new Date().toISOString(),
+          repo: project.name,
+          taskId,
+          taskTitle: task.title,
+          backend,
+          durationMs: Date.now() - seqStart,
+          turns: 0,
+          success: false,
+          committed: false,
+        })
         console.error(chalk.red(`\n❌ Agent failed on ${project.name}: ${String(err)}`))
       }
     }
@@ -242,14 +333,21 @@ program
   .option('-r, --root <path>', 'Set root development folder')
   .option('-k, --api-key <key>', 'Set Anthropic API key')
   .option('-b, --backend <backend>', 'Set default backend: auto, claude, copilot, sdk')
-  .action((opts: { root?: string; apiKey?: string; backend?: string }) => {
+  .option('--timeout <minutes>', 'Set default per-agent timeout in minutes')
+  .option('--alert-webhook <url>', 'Set webhook URL for alerts (HTTP POST)')
+  .option('--alert-slack <url>', 'Set Slack incoming webhook URL for alerts')
+  .option('--alert-clear', 'Remove all alert settings')
+  .action((opts: { root?: string; apiKey?: string; backend?: string; timeout?: string; alertWebhook?: string; alertSlack?: string; alertClear?: boolean }) => {
+    let changed = false
     if (opts.root) {
       saveConfig({ rootDir: opts.root })
       console.log(chalk.green(`✅ Root set to: ${opts.root}`))
+      changed = true
     }
     if (opts.apiKey) {
       saveConfig({ apiKey: opts.apiKey })
       console.log(chalk.green('✅ API key saved to ~/.aahp-runner.json'))
+      changed = true
     }
     if (opts.backend) {
       const valid = ['auto', 'claude', 'copilot', 'sdk']
@@ -259,14 +357,48 @@ program
       }
       saveConfig({ backend: opts.backend as 'auto' | 'claude' | 'copilot' | 'sdk' })
       console.log(chalk.green(`✅ Default backend set to: ${opts.backend}`))
+      changed = true
     }
-    if (!opts.root && !opts.apiKey && !opts.backend) {
+    if (opts.timeout) {
+      const minutes = parseInt(opts.timeout, 10)
+      if (isNaN(minutes) || minutes < 1) {
+        console.error(chalk.red('Timeout must be a positive number of minutes'))
+        process.exit(1)
+      }
+      saveConfig({ timeoutMinutes: minutes })
+      console.log(chalk.green(`✅ Default timeout set to: ${minutes} minutes`))
+      changed = true
+    }
+    if (opts.alertWebhook) {
+      const existing = loadConfig()
+      saveConfig({ alerts: { ...existing.alerts, webhook: opts.alertWebhook } })
+      console.log(chalk.green(`✅ Alert webhook set`))
+      changed = true
+    }
+    if (opts.alertSlack) {
+      const existing = loadConfig()
+      saveConfig({ alerts: { ...existing.alerts, slack: opts.alertSlack } })
+      console.log(chalk.green(`✅ Slack alert webhook set`))
+      changed = true
+    }
+    if (opts.alertClear) {
+      saveConfig({ alerts: undefined })
+      console.log(chalk.green('✅ Alert settings cleared'))
+      changed = true
+    }
+    if (!changed) {
       const cfg = loadConfig()
       console.log(chalk.bold('\nCurrent config (~/.aahp-runner.json):'))
       console.log(`  root:      ${cfg.rootDir ?? '(not set - use AAHP_ROOT env or --root)'}`)
       console.log(`  apiKey:    ${cfg.apiKey ? '***set***' : '(not set - use ANTHROPIC_API_KEY env)'}`)
       console.log(`  backend:   ${cfg.backend ?? 'auto'}`)
+      console.log(`  timeout:   ${cfg.timeoutMinutes ? cfg.timeoutMinutes + 'm' : '10m (default)'}`)
       console.log(`  schedule:  ${cfg.scheduledTime ?? '(not scheduled)'}`)
+      console.log(`  alerts:`)
+      if (cfg.alerts?.webhook) console.log(`    webhook: ${cfg.alerts.webhook}`)
+      else console.log(chalk.gray(`    webhook: (not set)`))
+      if (cfg.alerts?.slack) console.log(`    slack:   ${cfg.alerts.slack}`)
+      else console.log(chalk.gray(`    slack:   (not set)`))
     }
   })
 
@@ -431,6 +563,81 @@ program
     }
   })
 
+// ── metrics ──────────────────────────────────────────────────────────────────
+
+program
+  .command('metrics')
+  .description('Show historical run metrics and trends')
+  .option('--json', 'Output raw JSON instead of formatted table')
+  .option('--repo <name>', 'Filter by repository name')
+  .option('--days <n>', 'Show last N days (default: 30)', '30')
+  .action((opts: { json: boolean; repo?: string; days: string }) => {
+    const days = parseInt(opts.days, 10) || 30
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+    const metrics = loadMetrics({ repo: opts.repo, since })
+
+    if (metrics.length === 0) {
+      console.log(chalk.gray('\nNo metrics recorded yet.'))
+      console.log(chalk.gray('Metrics are saved automatically after each agent run.'))
+      console.log(chalk.gray(`File: ${metricsFilePath()}`))
+      return
+    }
+
+    if (opts.json) {
+      const summary = summarizeMetrics(metrics)
+      console.log(JSON.stringify({ metrics, summary }, null, 2))
+      return
+    }
+
+    const summary = summarizeMetrics(metrics)
+
+    console.log(chalk.bold(`\n📊 AAHP Metrics (last ${days} days)\n`))
+    console.log(`  Total runs:    ${chalk.bold(String(summary.totalRuns))}`)
+    const rateColor = summary.successRate >= 80 ? chalk.green : summary.successRate >= 50 ? chalk.yellow : chalk.red
+    console.log(`  Success rate:  ${rateColor(summary.successRate + '%')}`)
+    console.log(`  Avg duration:  ${chalk.cyan(formatDuration(summary.avgDurationMs))}`)
+    console.log()
+
+    // Per-repo table
+    const repos = Object.entries(summary.byRepo).sort(([, a], [, b]) => b.runs - a.runs)
+    if (repos.length > 0) {
+      console.log(chalk.bold('  By repository:'))
+      console.log(chalk.gray(`  ${'Repo'.padEnd(28)} ${'Runs'.padStart(5)} ${'OK'.padStart(4)} ${'Rate'.padStart(6)} ${'Avg'.padStart(8)}`))
+      console.log(chalk.gray('  ' + '-'.repeat(55)))
+      for (const [repo, stats] of repos) {
+        const rate = stats.runs > 0 ? Math.round((stats.successes / stats.runs) * 100) : 0
+        console.log(`  ${repo.padEnd(28)} ${String(stats.runs).padStart(5)} ${String(stats.successes).padStart(4)} ${(rate + '%').padStart(6)} ${formatDuration(stats.avgMs).padStart(8)}`)
+      }
+      console.log()
+    }
+
+    // Per-backend table
+    const backends = Object.entries(summary.byBackend)
+    if (backends.length > 0) {
+      console.log(chalk.bold('  By backend:'))
+      for (const [backend, stats] of backends) {
+        const rate = stats.runs > 0 ? Math.round((stats.successes / stats.runs) * 100) : 0
+        console.log(`  ${chalk.cyan(backend.padEnd(20))} ${stats.runs} runs, ${rate}% success`)
+      }
+      console.log()
+    }
+
+    // Daily trend (last 7 days)
+    const recentDays = summary.daily.slice(-7)
+    if (recentDays.length > 0) {
+      console.log(chalk.bold('  Daily trend:'))
+      for (const day of recentDays) {
+        const bar = chalk.green('#'.repeat(Math.min(day.successes, 30))) + chalk.red('#'.repeat(Math.min(day.runs - day.successes, 30)))
+        console.log(`  ${chalk.gray(day.date)} ${bar} ${day.successes}/${day.runs}`)
+      }
+      console.log()
+    }
+
+    console.log(chalk.gray(`  Data: ${metricsFilePath()}`))
+    console.log(chalk.gray('  Export: aahp metrics --json > metrics.json'))
+    console.log()
+  })
+
 program
   .name('aahp')
   .description('Autonomous AAHP agent runner - spawns Claude or Copilot agents to work through project tasks')
@@ -455,8 +662,15 @@ Examples:
   aahp logs                          List all agent log files
   aahp logs openclaw-ops             Show last 40 lines of agent log
   aahp logs openclaw-ops -f          Stream agent log live (tail -f)
+  aahp run --all --yes --timeout 15   Set per-agent timeout to 15 minutes
+  aahp metrics                       Show historical run metrics
+  aahp metrics --json                Export metrics as JSON
+  aahp metrics --repo openclaw-ops   Filter metrics by repo
   aahp config --backend copilot      Save default backend
   aahp config --api-key sk-ant-...   Save Anthropic API key
+  aahp config --timeout 15           Set default timeout to 15 minutes
+  aahp config --alert-webhook <url>  Set webhook for alerts
+  aahp config --alert-slack <url>    Set Slack webhook for alerts
   aahp schedule --time 02:00         Register nightly scheduled job (cron or Task Scheduler)
   aahp schedule --remove             Remove the scheduled job
 `)
@@ -506,7 +720,7 @@ program.action(async () => {
     console.log(chalk.gray('  No repos with .ai/handoff/MANIFEST.json found in:'))
     console.log(chalk.gray(`  ${rootDir}`))
     console.log()
-    console.log(chalk.white('  See:') + chalk.cyan('  https://github.com/homeofe/AAHP'))
+    console.log(chalk.white('  See:') + chalk.cyan('  https://github.com/elvatis/AAHP'))
     console.log()
     return
   }
@@ -612,4 +826,13 @@ function promptYN(question: string): Promise<boolean> {
       resolve(answer.trim().toLowerCase().startsWith('y'))
     })
   })
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  const sec = Math.floor(ms / 1000)
+  if (sec < 60) return `${sec}s`
+  const min = Math.floor(sec / 60)
+  const remSec = sec % 60
+  return remSec > 0 ? `${min}m${remSec}s` : `${min}m`
 }

@@ -12,7 +12,17 @@ export interface RunnerConfig {
   scheduledTime?: string  // HH:MM format
   maxConcurrent?: number
   backend?: 'auto' | 'claude' | 'copilot' | 'sdk'
+  timeoutMinutes?: number  // per-agent timeout (default: 10)
+  alerts?: AlertConfig
 }
+
+export interface AlertConfig {
+  webhook?: string       // Generic HTTP POST URL
+  slack?: string         // Slack incoming webhook URL
+  events?: AlertEvent[]
+}
+
+export type AlertEvent = 'run_complete' | 'agent_failed' | 'all_done'
 
 export function loadConfig(): Partial<RunnerConfig> {
   if (!fs.existsSync(CONFIG_PATH)) return {}

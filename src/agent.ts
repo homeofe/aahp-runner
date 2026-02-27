@@ -6,6 +6,7 @@ import type { AahpProject, AahpTask, AahpManifest } from './types.js'
 import { buildSystemPrompt, saveManifest } from './scanner.js'
 import { TOOL_DEFINITIONS, toOpenAITools, executeTool, runAsync } from './tools.js'
 import { agentLogPath, writeLog } from './status-board.js'
+import { ResourceMonitor, currentProcessSnapshot } from './resource-monitor.js'
 
 export interface AgentResult {
   success: boolean
@@ -14,6 +15,8 @@ export interface AgentResult {
   committed: boolean
   summary: string
   logFile: string   // path to full log
+  cpuAvg?: number   // average CPU % during run
+  memPeakMB?: number // peak memory in MB
 }
 
 type Backend = 'claude-cli' | 'copilot' | 'sdk' | 'none'
@@ -92,7 +95,8 @@ async function runViaClaudeCLI(
   project: AahpProject,
   taskId: string,
   task: AahpTask,
-  onLog: (msg: string) => void
+  onLog: (msg: string) => void,
+  timeoutMs: number = 10 * 60 * 1000
 ): Promise<AgentResult> {
   const systemPrompt = buildSystemPrompt(project, taskId, task)
   const userPrompt = `${systemPrompt}\n\n---\n\nStart working on [${taskId}]: ${task.title}\n\nRead relevant files first, then implement, test, and commit. Mark the task done in MANIFEST.json when finished.`
@@ -100,6 +104,7 @@ async function runViaClaudeCLI(
   onLog(`\nClaude Code agent starting on [${taskId}]: ${task.title}`)
   onLog(`   Repo: ${project.repoPath}`)
   onLog(`   Backend: claude CLI (Claude Code - no API key needed)`)
+  onLog(`   Timeout: ${Math.round(timeoutMs / 60000)}m`)
 
   const logFile = agentLogPath(project.name)
   writeLog(logFile, `=== AAHP [${taskId}] ${task.title}\n=== ${new Date().toISOString()}\n${'='.repeat(60)}\n`)
@@ -110,8 +115,10 @@ async function runViaClaudeCLI(
   let output = ''
   let exitCode: number | null = null
 
-  const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000
+  const CLAUDE_TIMEOUT_MS = timeoutMs
   const claudeCmd = process.platform === 'win32' ? 'claude.cmd' : 'claude'
+
+  let resMonitor: ResourceMonitor | undefined
 
   await new Promise<void>((resolve) => {
     const proc = spawn(
@@ -127,6 +134,12 @@ async function runViaClaudeCLI(
         env: { ...process.env, CLAUDECODE: undefined },
       }
     )
+
+    // Start resource monitoring on the child process
+    if (proc.pid) {
+      resMonitor = new ResourceMonitor(proc.pid)
+      resMonitor.start()
+    }
 
     // Manual timeout - spawn's timeout option is silently ignored for async spawn
     const timer = setTimeout(() => {
@@ -153,12 +166,14 @@ async function runViaClaudeCLI(
 
     proc.on('close', (code) => {
       clearTimeout(timer)
+      resMonitor?.stop()
       exitCode = code
       if (code !== 0) onLog(`Claude CLI exited with code ${code}`)
       resolve()
     })
     proc.on('error', (err) => {
       clearTimeout(timer)
+      resMonitor?.stop()
       onLog(`\nspawn error: ${err.message}`)
       resolve()
     })
@@ -189,6 +204,8 @@ async function runViaClaudeCLI(
     committed,
     summary: output.slice(0, 300),
     logFile,
+    cpuAvg: resMonitor?.avgCpu(),
+    memPeakMB: resMonitor?.peakMemMB(),
   }
 }
 
@@ -198,7 +215,8 @@ async function runViaSDK(
   taskId: string,
   task: AahpTask,
   apiKey: string,
-  onLog: (msg: string) => void
+  onLog: (msg: string) => void,
+  timeoutMs: number = 10 * 60 * 1000
 ): Promise<AgentResult> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk')
 
@@ -216,11 +234,20 @@ async function runViaSDK(
   let turns = 0
   let committed = false
   let finalSummary = ''
+  let timedOut = false
+  const deadline = Date.now() + timeoutMs
 
   onLog(`\nSDK agent starting on [${taskId}]: ${task.title}`)
   onLog(`   Backend: Anthropic SDK (API key)`)
+  onLog(`   Timeout: ${Math.round(timeoutMs / 60000)}m`)
 
   while (turns < MAX_TURNS) {
+    if (Date.now() >= deadline) {
+      onLog(`\nSDK agent timed out after ${Math.round(timeoutMs / 60000)}m`)
+      timedOut = true
+      break
+    }
+
     turns++
     onLog(`\n-- Turn ${turns}/${MAX_TURNS} --`)
 
@@ -259,6 +286,7 @@ async function runViaSDK(
     markTaskDone(project, taskId, task, turns, 'claude-opus-4-5')
     onLog(`\nMANIFEST.json updated - [${taskId}] marked done`)
   }
+  if (timedOut) onLog(`\nAgent was stopped due to timeout after ${turns} turns`)
 
   return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile: '' }
 }
@@ -277,7 +305,8 @@ async function runViaCopilot(
   taskId: string,
   task: AahpTask,
   copilotToken: string,
-  onLog: (msg: string) => void
+  onLog: (msg: string) => void,
+  timeoutMs: number = 10 * 60 * 1000
 ): Promise<AgentResult> {
   const systemPrompt = buildSystemPrompt(project, taskId, task)
   const MAX_TURNS = 30
@@ -297,14 +326,28 @@ async function runViaCopilot(
   let turns = 0
   let committed = false
   let finalSummary = ''
+  let timedOut = false
+  const deadline = Date.now() + timeoutMs
 
   onLog(`\nGitHub Copilot agent starting on [${taskId}]: ${task.title}`)
   onLog(`   Backend: GitHub Copilot (${MODEL})`)
   onLog(`   Repo: ${project.repoPath}`)
+  onLog(`   Timeout: ${Math.round(timeoutMs / 60000)}m`)
 
   while (turns < MAX_TURNS) {
+    if (Date.now() >= deadline) {
+      onLog(`\nCopilot agent timed out after ${Math.round(timeoutMs / 60000)}m`)
+      timedOut = true
+      break
+    }
+
     turns++
     onLog(`\n-- Turn ${turns}/${MAX_TURNS} --`)
+
+    const ac = new AbortController()
+    // Per-request timeout: remaining wall-clock time, capped at 2 minutes per request
+    const perRequestMs = Math.min(deadline - Date.now(), 2 * 60 * 1000)
+    const reqTimer = setTimeout(() => ac.abort(), perRequestMs)
 
     let response: Response
     try {
@@ -323,11 +366,19 @@ async function runViaCopilot(
           tool_choice: 'auto',
           max_tokens: 4096,
         }),
+        signal: ac.signal,
       })
     } catch (err) {
+      clearTimeout(reqTimer)
+      if (ac.signal.aborted) {
+        onLog(`\nCopilot request aborted (timeout)`)
+        timedOut = true
+        break
+      }
       onLog(`\nNetwork error: ${String(err)}`)
       break
     }
+    clearTimeout(reqTimer)
 
     if (!response.ok) {
       const body = await response.text()
@@ -359,6 +410,8 @@ async function runViaCopilot(
     messages.push({ role: 'assistant', content: msg.content ?? null, tool_calls: msg.tool_calls })
 
     for (const call of msg.tool_calls) {
+      if (Date.now() >= deadline) { timedOut = true; break }
+
       const fnName: string = call.function.name
       let fnArgs: Record<string, string> = {}
       try { fnArgs = JSON.parse(call.function.arguments) } catch { /* use empty args */ }
@@ -375,12 +428,14 @@ async function runViaCopilot(
         content: result,
       })
     }
+    if (timedOut) break
   }
 
   if (committed) {
     markTaskDone(project, taskId, task, turns, `github-copilot/${MODEL}`)
     onLog(`\nMANIFEST.json updated - [${taskId}] marked done`)
   }
+  if (timedOut) onLog(`\nAgent was stopped due to timeout after ${turns} turns`)
 
   return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile: '' }
 }
@@ -420,13 +475,15 @@ export async function runAgent(
   task: AahpTask,
   apiKey: string,
   onLog: (msg: string) => void,
-  explicitBackend: 'auto' | 'claude' | 'copilot' | 'sdk' = 'auto'
+  explicitBackend: 'auto' | 'claude' | 'copilot' | 'sdk' = 'auto',
+  timeoutMinutes: number = 10
 ): Promise<AgentResult> {
   const { backend, copilotToken } = await resolveBackend(apiKey, explicitBackend)
+  const timeoutMs = timeoutMinutes * 60 * 1000
 
-  if (backend === 'claude-cli') return runViaClaudeCLI(project, taskId, task, onLog)
-  if (backend === 'copilot') return runViaCopilot(project, taskId, task, copilotToken, onLog)
-  if (backend === 'sdk') return runViaSDK(project, taskId, task, apiKey, onLog)
+  if (backend === 'claude-cli') return runViaClaudeCLI(project, taskId, task, onLog, timeoutMs)
+  if (backend === 'copilot') return runViaCopilot(project, taskId, task, copilotToken, onLog, timeoutMs)
+  if (backend === 'sdk') return runViaSDK(project, taskId, task, apiKey, onLog, timeoutMs)
 
   // backend === 'none'
   const hint = explicitBackend === 'copilot'

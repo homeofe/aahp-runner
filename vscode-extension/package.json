@@ -1,0 +1,69 @@
+{
+  "name": "aahp-dashboard",
+  "displayName": "AAHP Dashboard",
+  "description": "Monitor AAHP agent runs, metrics, and resource usage directly in VS Code",
+  "version": "0.1.0",
+  "publisher": "elvatis",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aahp.openDashboard",
+        "title": "AAHP: Open Dashboard"
+      },
+      {
+        "command": "aahp.showMetrics",
+        "title": "AAHP: Show Metrics"
+      },
+      {
+        "command": "aahp.refreshDashboard",
+        "title": "AAHP: Refresh Dashboard"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aahp-explorer",
+          "title": "AAHP",
+          "icon": "$(robot)"
+        }
+      ]
+    },
+    "views": {
+      "aahp-explorer": [
+        {
+          "id": "aahp.agents",
+          "name": "Agents"
+        },
+        {
+          "id": "aahp.metrics",
+          "name": "Metrics"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "aahp.agents",
+        "contents": "Loading AAHP projects...\n[Open Dashboard](command:aahp.openDashboard)\n[Refresh](command:aahp.refreshDashboard)"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.7.3"
+  }
+}
