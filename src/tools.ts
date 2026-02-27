@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { execSync } from 'child_process'
+import { execSync, execFileSync, spawnSync } from 'child_process'
 
 // ── Tool definitions for Claude tool_use ──────────────────────────────────────
 
@@ -113,15 +113,33 @@ export function executeTool(
       case 'run_command': {
         const cmd = input['command'] ?? ''
         const cwd = input['cwd'] ? resolveSafe(input['cwd'], repoPath) : repoPath
-        onLog(`  ⚙️  ${cmd}`)
-        // Safety: block destructive operations
-        const blocked = ['rm -rf /', 'format', 'del /f /s /q c:\\']
-        if (blocked.some(b => cmd.toLowerCase().includes(b))) {
-          return 'ERROR: Command blocked for safety'
+        onLog(`  ${cmd}`)
+        // Safety: strict allowlist - only permitted command prefixes
+        const ALLOWED_COMMANDS = [
+          'git', 'npm', 'pnpm', 'node', 'npx', 'tsc', 'vitest',
+          'jest', 'echo', 'ls', 'dir', 'cat', 'type', 'pwd',
+        ]
+        // Parse the command string into binary and arguments
+        const parts = cmd.trim().split(/\s+/)
+        const binary = parts[0] ?? ''
+        const args = parts.slice(1)
+        if (!ALLOWED_COMMANDS.includes(binary.toLowerCase())) {
+          return `ERROR: Command "${binary}" is not allowed. Permitted commands: ${ALLOWED_COMMANDS.join(', ')}`
         }
         try {
-          const output = execSync(cmd, { cwd, encoding: 'utf8', timeout: 60_000 })
-          return output || '(no output)'
+          const result = spawnSync(binary, args, {
+            cwd,
+            encoding: 'utf8',
+            timeout: 60_000,
+            shell: false,
+          })
+          if (result.error) {
+            return `EXIT ERROR:\n${result.error.message}`
+          }
+          if (result.status !== 0) {
+            return `EXIT ERROR:\n${result.stdout ?? ''}${result.stderr ?? ''}`
+          }
+          return result.stdout || '(no output)'
         } catch (e: unknown) {
           const err = e as { stdout?: string; stderr?: string; message?: string }
           return `EXIT ERROR:\n${err.stdout ?? ''}${err.stderr ?? err.message ?? ''}`
@@ -138,10 +156,10 @@ export function executeTool(
         const msg = input['message'] ?? 'chore: agent update'
         const trailer = 'Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>'
         try {
-          execSync('git add -A', { cwd: repoPath })
-          execSync(`git commit -m "${msg.replace(/"/g, '\\"')}" -m "${trailer}"`, { cwd: repoPath })
-          const hash = execSync('git rev-parse --short HEAD', { cwd: repoPath, encoding: 'utf8' }).trim()
-          onLog(`  💾 committed ${hash}: ${msg}`)
+          execFileSync('git', ['add', '-A'], { cwd: repoPath })
+          execFileSync('git', ['commit', '-m', msg, '-m', trailer], { cwd: repoPath })
+          const hash = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repoPath, encoding: 'utf8' }).trim()
+          onLog(`  committed ${hash}: ${msg}`)
           return `OK: committed ${hash}`
         } catch (e: unknown) {
           const err = e as { stderr?: string; message?: string }
@@ -160,8 +178,11 @@ export function executeTool(
 function resolveSafe(filePath: string, repoPath: string): string {
   const resolved = path.isAbsolute(filePath) ? filePath : path.resolve(repoPath, filePath)
   // Allow paths within repo or within parent dev root (one level up)
+  // Use path.sep suffix to prevent prefix collisions (e.g. C:\dev matching C:\developer)
   const devRoot = path.dirname(repoPath)
-  if (!resolved.startsWith(repoPath) && !resolved.startsWith(devRoot)) {
+  const inRepo = resolved === repoPath || resolved.startsWith(repoPath + path.sep)
+  const inDevRoot = resolved === devRoot || resolved.startsWith(devRoot + path.sep)
+  if (!inRepo && !inDevRoot) {
     return path.join(repoPath, path.basename(filePath))
   }
   return resolved
