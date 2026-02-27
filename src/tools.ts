@@ -1,6 +1,26 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { execSync, execFileSync, spawnSync } from 'child_process'
+import { spawn } from 'child_process'
+
+// ── Shared async command runner ──────────────────────────────────────────────
+
+export async function runAsync(
+  binary: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number = 60000
+): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  return new Promise((resolve) => {
+    const proc = spawn(binary, args, { cwd, shell: false, stdio: ['pipe', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    const timer = setTimeout(() => { proc.kill(); resolve({ stdout, stderr, code: null }) }, timeoutMs)
+    proc.stdout.on('data', (d: Buffer) => { stdout += d.toString() })
+    proc.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
+    proc.on('close', (code) => { clearTimeout(timer); resolve({ stdout, stderr, code }) })
+    proc.on('error', (err) => { clearTimeout(timer); resolve({ stdout: '', stderr: err.message, code: 1 }) })
+  })
+}
 
 // ── Tool definitions for Claude tool_use ──────────────────────────────────────
 
@@ -91,38 +111,46 @@ export function toOpenAITools(): object[] {
   }))
 }
 
-// ── Tool executor ─────────────────────────────────────────────────────────────
+// ── Tool executor (async - does not block the event loop) ────────────────────
 
-export function executeTool(
+export async function executeTool(
   toolName: string,
   input: Record<string, string>,
   repoPath: string,
   onLog: (msg: string) => void
-): string {
+): Promise<string> {
   try {
     switch (toolName) {
 
       case 'read_file': {
         const filePath = resolveSafe(input['path'] ?? '', repoPath)
-        if (!fs.existsSync(filePath)) return `ERROR: File not found: ${filePath}`
-        const content = fs.readFileSync(filePath, 'utf8')
-        onLog(`  📄 read ${path.relative(repoPath, filePath)} (${content.length} chars)`)
+        try {
+          await fs.promises.access(filePath)
+        } catch {
+          return `ERROR: File not found: ${filePath}`
+        }
+        const content = await fs.promises.readFile(filePath, 'utf8')
+        onLog(`  read ${path.relative(repoPath, filePath)} (${content.length} chars)`)
         return content
       }
 
       case 'write_file': {
         const filePath = resolveSafe(input['path'] ?? '', repoPath)
         const content = input['content'] ?? ''
-        fs.mkdirSync(path.dirname(filePath), { recursive: true })
-        fs.writeFileSync(filePath, content, 'utf8')
-        onLog(`  ✏️  wrote ${path.relative(repoPath, filePath)} (${content.length} chars)`)
+        await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
+        await fs.promises.writeFile(filePath, content, 'utf8')
+        onLog(`  wrote ${path.relative(repoPath, filePath)} (${content.length} chars)`)
         return `OK: wrote ${filePath}`
       }
 
       case 'list_dir': {
         const dirPath = resolveSafe(input['path'] ?? '.', repoPath)
-        if (!fs.existsSync(dirPath)) return `ERROR: Directory not found: ${dirPath}`
-        const entries = fs.readdirSync(dirPath, { withFileTypes: true })
+        try {
+          await fs.promises.access(dirPath)
+        } catch {
+          return `ERROR: Directory not found: ${dirPath}`
+        }
+        const entries = await fs.promises.readdir(dirPath, { withFileTypes: true })
         return entries
           .map(e => `${e.isDirectory() ? '[DIR] ' : '      '}${e.name}`)
           .join('\n')
@@ -144,45 +172,37 @@ export function executeTool(
         if (!ALLOWED_COMMANDS.includes(binary.toLowerCase())) {
           return `ERROR: Command "${binary}" is not allowed. Permitted commands: ${ALLOWED_COMMANDS.join(', ')}`
         }
-        try {
-          const result = spawnSync(binary, args, {
-            cwd,
-            encoding: 'utf8',
-            timeout: 60_000,
-            shell: false,
-          })
-          if (result.error) {
-            return `EXIT ERROR:\n${result.error.message}`
-          }
-          if (result.status !== 0) {
-            return `EXIT ERROR:\n${result.stdout ?? ''}${result.stderr ?? ''}`
-          }
-          return result.stdout || '(no output)'
-        } catch (e: unknown) {
-          const err = e as { stdout?: string; stderr?: string; message?: string }
-          return `EXIT ERROR:\n${err.stdout ?? ''}${err.stderr ?? err.message ?? ''}`
+        const result = await runAsync(binary, args, cwd)
+        if (result.code === null) {
+          return `EXIT ERROR: command timed out`
         }
+        if (result.code !== 0) {
+          return `EXIT ERROR:\n${result.stdout}${result.stderr}`
+        }
+        return result.stdout || '(no output)'
       }
 
       case 'git_status': {
-        const status = execSync('git status --short', { cwd: repoPath, encoding: 'utf8' })
-        const log = execSync('git --no-pager log --oneline -5', { cwd: repoPath, encoding: 'utf8' })
-        return `=== Status ===\n${status}\n=== Recent commits ===\n${log}`
+        const statusResult = await runAsync('git', ['status', '--short'], repoPath)
+        const logResult = await runAsync('git', ['--no-pager', 'log', '--oneline', '-5'], repoPath)
+        return `=== Status ===\n${statusResult.stdout}\n=== Recent commits ===\n${logResult.stdout}`
       }
 
       case 'git_commit': {
         const msg = input['message'] ?? 'chore: agent update'
         const trailer = 'Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>'
-        try {
-          execFileSync('git', ['add', '-A'], { cwd: repoPath })
-          execFileSync('git', ['commit', '-m', msg, '-m', trailer], { cwd: repoPath })
-          const hash = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repoPath, encoding: 'utf8' }).trim()
-          onLog(`  committed ${hash}: ${msg}`)
-          return `OK: committed ${hash}`
-        } catch (e: unknown) {
-          const err = e as { stderr?: string; message?: string }
-          return `ERROR: ${err.stderr ?? err.message ?? String(e)}`
+        const addResult = await runAsync('git', ['add', '-A'], repoPath)
+        if (addResult.code !== 0) {
+          return `ERROR: git add failed: ${addResult.stderr}`
         }
+        const commitResult = await runAsync('git', ['commit', '-m', msg, '-m', trailer], repoPath)
+        if (commitResult.code !== 0) {
+          return `ERROR: ${commitResult.stderr}`
+        }
+        const hashResult = await runAsync('git', ['rev-parse', '--short', 'HEAD'], repoPath, 5000)
+        const hash = hashResult.stdout.trim()
+        onLog(`  committed ${hash}: ${msg}`)
+        return `OK: committed ${hash}`
       }
 
       default:

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import { program } from 'commander'
 import chalk from 'chalk'
-import ora from 'ora'
 import * as path from 'path'
 import os from 'os'
 import * as readline from 'readline'
 import { scanProjects, getTopTask } from './scanner.js'
 import { runAgent } from './agent.js'
+import { runAsync } from './tools.js'
 import { loadConfig, saveConfig, registerWindowsScheduler } from './scheduler.js'
 
 const DEFAULT_ROOT = process.env['AAHP_ROOT'] ?? path.join(os.homedir(), 'Development')
@@ -162,9 +162,6 @@ program
         if (!answer) { console.log(chalk.gray('Skipped.')); continue }
       }
 
-      const spinner = ora(`Running agent on ${project.name}...`).start()
-      spinner.stop()
-
       try {
         const result = await runAgent(project, taskId, task, apiKey, msg => console.log(chalk.gray(msg)), backend)
 
@@ -296,9 +293,9 @@ program.action(async () => {
   console.log(chalk.green('✅ Root:') + chalk.gray(` ${rootDir}`))
 
   // ── Step 2: check claude CLI ─────────────────────────────────────────────────
-  const { execSync } = await import('child_process')
-  let claudeOk = false
-  try { execSync('claude --version', { stdio: 'pipe' }); claudeOk = true } catch {}
+  const claudeCmd = process.platform === 'win32' ? 'claude.cmd' : 'claude'
+  const { code: claudeCode } = await runAsync(claudeCmd, ['--version'], process.cwd(), 10000)
+  const claudeOk = claudeCode === 0
 
   if (!claudeOk) {
     console.log(chalk.yellow('\nStep 2 of 3: Install Claude Code'))
@@ -366,7 +363,7 @@ program.parse()
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-/** Sliding-window concurrency limiter. maxConcurrent=0 → all in parallel. */
+/** Sliding-window concurrency limiter. maxConcurrent=0 - all in parallel. */
 async function runWithLimit<T, R>(
   items: T[],
   maxConcurrent: number,
@@ -379,11 +376,13 @@ async function runWithLimit<T, R>(
   const results: R[] = []
   const queue = [...items.entries()]
   let active = 0
+  let errored = false
 
   await new Promise<void>((resolve, reject) => {
     const next = () => {
+      if (errored) return
       if (queue.length === 0 && active === 0) { resolve(); return }
-      while (active < maxConcurrent && queue.length > 0) {
+      while (active < maxConcurrent && queue.length > 0 && !errored) {
         const entry = queue.shift()!
         const [idx, item] = entry
         active++
@@ -393,8 +392,10 @@ async function runWithLimit<T, R>(
           next()
         }).catch(err => {
           active--
-          next()
+          errored = true
           reject(err)
+          // Don't call next() after rejection - let remaining tasks complete
+          // but don't start new ones
         })
       }
     }
