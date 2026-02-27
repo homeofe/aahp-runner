@@ -166,14 +166,14 @@ export async function executeTool(
           'git', 'npm', 'pnpm', 'node', 'npx', 'tsc', 'vitest',
           'jest', 'echo', 'ls', 'dir', 'cat', 'type', 'pwd',
         ]
-        // Parse the command string into binary and arguments
-        const parts = cmd.trim().split(/\s+/)
-        const binary = parts[0] ?? ''
-        const args = parts.slice(1)
+        // Extract leading binary for allowlist validation
+        const binary = cmd.trim().split(/\s+/)[0] ?? ''
         if (!ALLOWED_COMMANDS.includes(binary.toLowerCase())) {
           return `ERROR: Command "${binary}" is not allowed. Permitted commands: ${ALLOWED_COMMANDS.join(', ')}`
         }
-        const result = await runAsync(binary, args, cwd)
+        // Run the full command through the shell so quotes and special
+        // characters are handled correctly (e.g. node -e "console.log(42)")
+        const result = await runAsync(cmd, [], cwd, 60000, true)
         if (result.code === null) {
           return `EXIT ERROR: command timed out`
         }
