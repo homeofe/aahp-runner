@@ -1,0 +1,93 @@
+{
+  "aahp_version": "3.0",
+  "project": "aahp-runner",
+  "last_session": {
+    "agent": "claude-sonnet-4.6",
+    "session_id": "bootstrap-2026-02-27",
+    "timestamp": "2026-02-27T02:31:15Z",
+    "commit": "4a66933",
+    "phase": "setup",
+    "duration_minutes": 15
+  },
+  "files": {
+    "STATUS.md": {
+      "checksum": "sha256:(pending)",
+      "updated": "2026-02-27T02:31:15Z",
+      "lines": 52,
+      "summary": "v0.1.0 functional. 3 backends, 5 commands. Missing: CI, tests, npm publish."
+    },
+    "NEXT_ACTIONS.md": {
+      "checksum": "sha256:(pending)",
+      "updated": "2026-02-27T02:31:15Z",
+      "lines": 80,
+      "summary": "T-001 CI, T-002 tests, T-003 npm publish, T-004 cron support"
+    },
+    "LOG.md": {
+      "checksum": "sha256:(pending)",
+      "updated": "2026-02-27T02:31:15Z",
+      "lines": 48,
+      "summary": "Bootstrapped AAHP handoff files for aahp-runner"
+    },
+    "DASHBOARD.md": {
+      "checksum": "sha256:(pending)",
+      "updated": "2026-02-27T02:31:15Z",
+      "lines": 60,
+      "summary": "All components manual-tested. CI and tests missing."
+    },
+    "TRUST.md": {
+      "checksum": "sha256:(pending)",
+      "updated": "2026-02-27T02:31:15Z",
+      "lines": 55,
+      "summary": "Build verified. CLI assumed. Scheduler untested."
+    },
+    "CONVENTIONS.md": {
+      "checksum": "sha256:(pending)",
+      "updated": "2026-02-27T02:31:15Z",
+      "lines": 65,
+      "summary": "TypeScript/ESM conventions, commit format, file organization"
+    },
+    "WORKFLOW.md": {
+      "checksum": "sha256:(pending)",
+      "updated": "2026-02-27T02:31:15Z",
+      "lines": 85,
+      "summary": "4-phase pipeline: research, architect, implement, review"
+    }
+  },
+  "quick_context": "aahp-runner v0.1.0: autonomous AAHP agent runner. 3 backends (claude-cli, copilot, sdk), 5 commands, parallel execution. Missing: CI, tests, npm publish.",
+  "token_budget": {
+    "manifest_only": 80,
+    "manifest_plus_core": 1200,
+    "full_read": 4500
+  },
+  "next_task_id": 5,
+  "tasks": {
+    "T-001": {
+      "title": "Add GitHub Actions CI pipeline",
+      "status": "ready",
+      "priority": "medium",
+      "depends_on": [],
+      "created": "2026-02-27T02:31:15Z"
+    },
+    "T-002": {
+      "title": "Add automated tests (Vitest)",
+      "status": "ready",
+      "priority": "medium",
+      "depends_on": [],
+      "created": "2026-02-27T02:31:15Z"
+    },
+    "T-003": {
+      "title": "Publish to npm",
+      "status": "ready",
+      "priority": "low",
+      "depends_on": [],
+      "created": "2026-02-27T02:31:15Z"
+    },
+    "T-004": {
+      "title": "Add Linux/macOS cron support",
+      "status": "ready",
+      "priority": "low",
+      "depends_on": [],
+      "created": "2026-02-27T02:31:15Z"
+    }
+  }
+}
