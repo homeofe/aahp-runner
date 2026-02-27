@@ -1,7 +1,7 @@
 # aahp-runner: Current State of the Nation
 
 > Last updated: 2026-02-27 by Claude Opus 4.6
-> Commit: eb2638f
+> Commit: pending
 >
 > **Rule:** This file is rewritten (not appended) at the end of every session.
 > It reflects the *current* reality, not history. History lives in LOG.md.
@@ -32,7 +32,7 @@ publish (files, engines, keywords, prepublishOnly). Run `npm publish` to release
 | `aahp schedule` | ✅ | Windows Task Scheduler registration |
 | Automated tests | ✅ | 49 Vitest tests, all passing |
 | CI pipeline | ✅ | GitHub Actions on push/PR, Node 20+22 |
-| `npm pack --dry-run` | ✅ | 16 files, 28.7 kB packed, no test files |
+| `npm pack --dry-run` | ✅ | 24 files, 31.3 kB packed (with .d.ts types) |
 <!-- /SECTION: build_health -->
 
 ---
@@ -52,7 +52,8 @@ publish (files, engines, keywords, prepublishOnly). Run `npm publish` to release
 | README | `README.md` | ✅ Complete | Setup, commands, examples |
 | CI pipeline | `.github/workflows/ci.yml` | ✅ Complete | Build on Node 20+22 |
 | Automated tests | `src/*.test.ts` | ✅ Complete | 49 Vitest tests |
-| npm publish config | `package.json` | ✅ Ready | files, engines, keywords, prepublishOnly |
+| LICENSE file | `LICENSE` | ✅ Complete | MIT license |
+| npm publish config | `package.json` | ✅ Ready | files, types, engines, keywords, prepublishOnly |
 <!-- /SECTION: components -->
 
 ---

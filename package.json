@@ -19,10 +19,13 @@
     "task-runner"
   ],
   "type": "module",
+  "types": "dist/types.d.ts",
   "files": [
     "dist/**/*.js",
     "dist/**/*.js.map",
+    "dist/**/*.d.ts",
     "!dist/**/*.test.*",
+    "LICENSE",
     "README.md"
   ],
   "bin": {
