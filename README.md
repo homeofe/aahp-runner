@@ -4,6 +4,19 @@
 
 ---
 
+## The AAHP Toolchain
+
+> **Install both packages for the full experience.**
+
+| Package | What it does | When to use |
+|---------|-------------|-------------|
+| **[aahp-orchestrator](https://github.com/homeofe/aahp-orchestrator)** | VS Code extension. Injects AAHP context into Copilot/Claude Code while *you* code. Live status bar, `@aahp` chat, sidebar dashboard. | Every coding session — your human-in-the-loop assistant. |
+| **aahp-runner** ← you are here | Autonomous CLI. Spawns Claude agents that implement tasks, run tests, and commit — no human input needed. Schedulable. | Overnight / CI — your unattended worker. |
+
+Together they cover the full AAHP loop: you plan and guide during the day → the runner works through tasks at night → you wake up to committed progress.
+
+---
+
 ## How it works
 
 1. Scans a root development folder for all repos with `.ai/handoff/MANIFEST.json`
