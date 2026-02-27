@@ -71,12 +71,14 @@ program
   .option('--yes', 'Skip confirmation prompts (for scheduled/unattended runs)')
   .option('-l, --limit <n>', 'Max agents to run in parallel (0 = unlimited)', '0')
   .option('-k, --api-key <key>', 'Anthropic API key (or set ANTHROPIC_API_KEY env)')
+  .option('-b, --backend <backend>', 'Agent backend: auto (default), claude, copilot, sdk', 'auto')
   .action(async (projectName: string | undefined, opts: {
-    root: string; all: boolean; yes: boolean; limit: string; apiKey?: string
+    root: string; all: boolean; yes: boolean; limit: string; apiKey?: string; backend: string
   }) => {
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
     const apiKey = opts.apiKey ?? process.env['ANTHROPIC_API_KEY'] ?? config.apiKey ?? ''
+    const backend = (opts.backend ?? config.backend ?? 'auto') as 'auto' | 'claude' | 'copilot' | 'sdk'
 
     // No key needed if claude CLI is available (Claude Code VS Code extension)
     const projects = scanProjects(rootDir)
@@ -128,7 +130,7 @@ program
         try {
           const result = await runAgent(project, taskId, task, apiKey, msg => {
             process.stdout.write(chalk.gray(`[${project.name}] `) + msg + '\n')
-          })
+          }, backend)
           if (result.success) {
             console.log(chalk.green(`✅ ${project.name} [${taskId}] committed`))
           } else {
@@ -164,7 +166,7 @@ program
       spinner.stop()
 
       try {
-        const result = await runAgent(project, taskId, task, apiKey, msg => console.log(chalk.gray(msg)))
+        const result = await runAgent(project, taskId, task, apiKey, msg => console.log(chalk.gray(msg)), backend)
 
         if (result.success) {
           console.log(chalk.green(`\n✅ ${project.name} [${taskId}] completed in ${result.turns} turns`))
@@ -185,7 +187,8 @@ program
   .description('Set persistent configuration (stored in ~/.aahp-runner.json)')
   .option('-r, --root <path>', 'Set root development folder')
   .option('-k, --api-key <key>', 'Set Anthropic API key')
-  .action((opts: { root?: string; apiKey?: string }) => {
+  .option('-b, --backend <backend>', 'Set default backend: auto, claude, copilot, sdk')
+  .action((opts: { root?: string; apiKey?: string; backend?: string }) => {
     if (opts.root) {
       saveConfig({ rootDir: opts.root })
       console.log(chalk.green(`✅ Root set to: ${opts.root}`))
@@ -194,11 +197,21 @@ program
       saveConfig({ apiKey: opts.apiKey })
       console.log(chalk.green('✅ API key saved to ~/.aahp-runner.json'))
     }
-    if (!opts.root && !opts.apiKey) {
+    if (opts.backend) {
+      const valid = ['auto', 'claude', 'copilot', 'sdk']
+      if (!valid.includes(opts.backend)) {
+        console.error(chalk.red(`Invalid backend "${opts.backend}". Choose: ${valid.join(', ')}`))
+        process.exit(1)
+      }
+      saveConfig({ backend: opts.backend as 'auto' | 'claude' | 'copilot' | 'sdk' })
+      console.log(chalk.green(`✅ Default backend set to: ${opts.backend}`))
+    }
+    if (!opts.root && !opts.apiKey && !opts.backend) {
       const cfg = loadConfig()
       console.log(chalk.bold('\nCurrent config (~/.aahp-runner.json):'))
       console.log(`  root:      ${cfg.rootDir ?? '(not set - use AAHP_ROOT env or --root)'}`)
       console.log(`  apiKey:    ${cfg.apiKey ? '***set***' : '(not set - use ANTHROPIC_API_KEY env)'}`)
+      console.log(`  backend:   ${cfg.backend ?? 'auto'}`)
       console.log(`  schedule:  ${cfg.scheduledTime ?? '(not scheduled)'}`)
     }
   })
@@ -240,19 +253,27 @@ program
 
 program
   .name('aahp')
-  .description('Autonomous AAHP agent runner - spawns Claude agents to work through project tasks')
+  .description('Autonomous AAHP agent runner - spawns Claude or Copilot agents to work through project tasks')
   .version('0.1.0')
   .addHelpText('after', `
+Backends:
+  auto     Prefers Claude Code CLI, falls back to GitHub Copilot, then Anthropic SDK
+  claude   Claude Code CLI only (requires VS Code Claude Code extension)
+  copilot  GitHub Copilot only (requires: gh auth login with Copilot subscription)
+  sdk      Anthropic API key only
+
 Examples:
-  aahp                        Guided setup - shows next step automatically
-  aahp list                   See all projects and their top ready task
-  aahp status                 Quick status overview
-  aahp run --all --yes            Spawn agents on ALL projects in parallel (no prompts)
-  aahp run --all --yes --limit 3  Spawn agents on ALL projects, max 3 at a time
-  aahp run --all --yes --limit 5  Spawn agents on ALL projects, max 5 at a time
-  aahp run openclaw-ops       Spawn agent on one project
-  aahp config --api-key sk-…  Save Anthropic API key
-  aahp schedule --time 02:00  Register nightly Windows Task Scheduler job
+  aahp                               Guided setup - shows next step automatically
+  aahp list                          See all projects and their top ready task
+  aahp status                        Quick status overview
+  aahp run --all --yes               Spawn agents on ALL projects (auto backend)
+  aahp run --all --yes --backend copilot    Use GitHub Copilot for all tasks
+  aahp run --all --yes --backend claude     Use Claude Code for all tasks
+  aahp run --all --yes --limit 3     Cap at 3 concurrent agents
+  aahp run openclaw-ops              Spawn agent on one project
+  aahp config --backend copilot      Save default backend
+  aahp config --api-key sk-ant-...   Save Anthropic API key
+  aahp schedule --time 02:00         Register nightly Windows Task Scheduler job
 `)
 
 // ── Default: guided wizard when no command given ──────────────────────────────
