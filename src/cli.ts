@@ -2,12 +2,14 @@
 import { program } from 'commander'
 import chalk from 'chalk'
 import * as path from 'path'
+import * as fs from 'fs'
 import os from 'os'
 import * as readline from 'readline'
 import { scanProjects, getTopTask } from './scanner.js'
 import { runAgent } from './agent.js'
 import { runAsync } from './tools.js'
 import { loadConfig, saveConfig, registerWindowsScheduler } from './scheduler.js'
+import { StatusBoard, AgentStatus, LOG_DIR, agentLogPath } from './status-board.js'
 
 const DEFAULT_ROOT = process.env['AAHP_ROOT'] ?? path.join(os.homedir(), 'Development')
 
@@ -112,40 +114,72 @@ program
       targets = [picked]
     }
 
-    // When --all --yes: run all in parallel (with optional concurrency limit)
+    // When --all --yes: run all in parallel with live status board
     if (opts.all && opts.yes) {
       const maxConcurrent = parseInt(opts.limit, 10) || 0
       const limitLabel = maxConcurrent > 0 ? ` (max ${maxConcurrent} at a time)` : ' in parallel'
-      console.log(chalk.bold(`\n🚀 Spawning ${targets.length} agents${limitLabel}...\n`))
-      targets.forEach(p => {
+      console.log(chalk.bold(`\n🚀 Spawning ${targets.length} agents${limitLabel}...`))
+
+      // Build status entries, one per target
+      const statuses: AgentStatus[] = targets.map(p => {
         const top = getTopTask(p)
-        if (top) console.log(chalk.gray(`  ⏳ ${p.name} → [${top[0]}] ${top[1].title}`))
+        return {
+          repo: p.name,
+          taskId: top?.[0] ?? '?',
+          taskTitle: top?.[1].title ?? '',
+          state: 'queued' as const,
+          lastLine: '',
+          logFile: agentLogPath(p.name),
+          committed: false,
+        }
       })
-      console.log()
+
+      const board = new StatusBoard(statuses)
+      board.start()
 
       const results = await runWithLimit(targets, maxConcurrent, async project => {
         const topTask = getTopTask(project)
         if (!topTask) return undefined
         const [taskId, task] = topTask
+        const st = statuses.find(s => s.repo === project.name)!
+
+        st.state = 'running'
+        st.startedAt = new Date()
+        board.refresh()
+
         try {
           const result = await runAgent(project, taskId, task, apiKey, msg => {
-            process.stdout.write(chalk.gray(`[${project.name}] `) + msg + '\n')
+            // Only update the last meaningful line for the status board (skip blanks)
+            const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
+            if (line) st.lastLine = line.trim()
+            board.refresh()
           }, backend)
-          if (result.success) {
-            console.log(chalk.green(`✅ ${project.name} [${taskId}] committed`))
-          } else {
-            console.log(chalk.yellow(`⚠️  ${project.name} [${taskId}] no commit detected`))
-          }
+
+          st.state = result.success ? 'done' : 'failed'
+          st.committed = result.committed
+          st.finishedAt = new Date()
+          st.lastLine = result.success ? `committed` : 'no commit detected'
+          board.refresh()
           return result
         } catch (err) {
-          console.error(chalk.red(`❌ ${project.name}: ${String(err)}`))
+          st.state = 'failed'
+          st.finishedAt = new Date()
+          st.lastLine = String(err).slice(0, 60)
+          board.refresh()
           return undefined
         }
       })
 
-      const done = results.filter(r => r?.success).length
-      const failed = results.filter(r => r && !r.success).length
-      console.log(chalk.bold(`\n📊 Done: ${done}/${targets.length} committed, ${failed} partial`))
+      board.finish()
+
+      // Show log file hints for any failures
+      const failed = statuses.filter(s => s.state === 'failed')
+      if (failed.length > 0) {
+        console.log(chalk.gray('\nTo inspect failed agents:'))
+        for (const s of failed) {
+          console.log(chalk.gray(`  tail -f "${s.logFile}"`))
+        }
+      }
       return
     }
 
@@ -227,6 +261,84 @@ program
     registerWindowsScheduler(opts.time, rootDir)
   })
 
+// ── logs — tail an agent's log file ──────────────────────────────────────────
+
+program
+  .command('logs [repo]')
+  .description('Show or tail the latest log for an agent. Omit repo to list all logs.')
+  .option('-f, --follow', 'Stream log in real-time (like tail -f)')
+  .option('-n, --lines <n>', 'Show last N lines', '40')
+  .action(async (repo: string | undefined, opts: { follow: boolean; lines: string }) => {
+    fs.mkdirSync(LOG_DIR, { recursive: true })
+
+    if (!repo) {
+      // List all log files
+      const files = fs.readdirSync(LOG_DIR).filter(f => f.endsWith('.log')).sort().reverse()
+      if (files.length === 0) {
+        console.log(chalk.gray(`No logs yet in ${LOG_DIR}`))
+        console.log(chalk.gray('Logs are written when agents run via: aahp run --all --yes'))
+        return
+      }
+      console.log(chalk.bold(`\n📋 Agent logs in ${LOG_DIR}\n`))
+      for (const f of files) {
+        const stat = fs.statSync(`${LOG_DIR}/${f}`)
+        const size = (stat.size / 1024).toFixed(1)
+        console.log(`  ${chalk.cyan(f.replace('.log', '').padEnd(40))} ${chalk.gray(`${size} KB`)}`)
+      }
+      console.log(chalk.gray(`\n  aahp logs <repo>        show last 40 lines`))
+      console.log(chalk.gray(`  aahp logs <repo> -f     stream live`))
+      return
+    }
+
+    // Find the latest log for this repo
+    const files = fs.readdirSync(LOG_DIR)
+      .filter(f => f.startsWith(repo) && f.endsWith('.log'))
+      .sort().reverse()
+
+    if (files.length === 0) {
+      console.log(chalk.yellow(`No log found for "${repo}"`))
+      console.log(chalk.gray(`Available: ${fs.readdirSync(LOG_DIR).filter(f => f.endsWith('.log')).map(f => f.replace(/-\d{4}-\d{2}-\d{2}\.log$/, '')).join(', ')}`))
+      return
+    }
+
+    const logPath = path.join(LOG_DIR, files[0]!)
+    console.log(chalk.gray(`${logPath}\n`))
+
+    if (opts.follow) {
+      // Stream new content as it's written
+      const n = parseInt(opts.lines, 10) || 40
+      const content = fs.readFileSync(logPath, 'utf8')
+      const lines = content.split('\n')
+      process.stdout.write(lines.slice(-n).join('\n') + '\n')
+
+      let size = fs.statSync(logPath).size
+      console.log(chalk.cyan('--- following (Ctrl+C to stop) ---'))
+      const interval = setInterval(() => {
+        const newSize = fs.statSync(logPath).size
+        if (newSize > size) {
+          const fd = fs.openSync(logPath, 'r')
+          const buf = Buffer.allocUnsafe(newSize - size)
+          fs.readSync(fd, buf, 0, buf.length, size)
+          fs.closeSync(fd)
+          process.stdout.write(buf.toString())
+          size = newSize
+        }
+      }, 300)
+      process.on('SIGINT', () => { clearInterval(interval); process.exit(0) })
+      // Keep running until Ctrl+C
+      await new Promise(() => {})
+    } else {
+      // Just show last N lines
+      const n = parseInt(opts.lines, 10) || 40
+      const lines = fs.readFileSync(logPath, 'utf8').split('\n')
+      const tail = lines.slice(-n)
+      process.stdout.write(tail.join('\n') + '\n')
+      if (lines.length > n) {
+        console.log(chalk.gray(`\n  (showing last ${n} of ${lines.length} lines — use -f to follow or -n <N> for more)`))
+      }
+    }
+  })
+
 // ── status (quick overview, no agent) ────────────────────────────────────────
 
 program
@@ -268,6 +380,9 @@ Examples:
   aahp run --all --yes --backend claude     Use Claude Code for all tasks
   aahp run --all --yes --limit 3     Cap at 3 concurrent agents
   aahp run openclaw-ops              Spawn agent on one project
+  aahp logs                          List all agent log files
+  aahp logs openclaw-ops             Show last 40 lines of agent log
+  aahp logs openclaw-ops -f          Stream agent log live (tail -f)
   aahp config --backend copilot      Save default backend
   aahp config --api-key sk-ant-...   Save Anthropic API key
   aahp schedule --time 02:00         Register nightly Windows Task Scheduler job

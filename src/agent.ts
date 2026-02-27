@@ -1,9 +1,11 @@
 import { spawn } from 'child_process'
+import { execSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { AahpProject, AahpTask, AahpManifest } from './types.js'
 import { buildSystemPrompt, saveManifest } from './scanner.js'
 import { TOOL_DEFINITIONS, toOpenAITools, executeTool, runAsync } from './tools.js'
+import { agentLogPath, writeLog } from './status-board.js'
 
 export interface AgentResult {
   success: boolean
@@ -11,6 +13,7 @@ export interface AgentResult {
   turns: number
   committed: boolean
   summary: string
+  logFile: string   // path to full log
 }
 
 type Backend = 'claude-cli' | 'copilot' | 'sdk' | 'none'
@@ -98,6 +101,9 @@ async function runViaClaudeCLI(
   onLog(`   Repo: ${project.repoPath}`)
   onLog(`   Backend: claude CLI (Claude Code - no API key needed)`)
 
+  const logFile = agentLogPath(project.name)
+  writeLog(logFile, `=== AAHP [${taskId}] ${task.title}\n=== ${new Date().toISOString()}\n${'='.repeat(60)}\n`)
+
   // Record HEAD before spawn for reliable commit detection
   const headBefore = await getHead(project.repoPath)
 
@@ -132,10 +138,12 @@ async function runViaClaudeCLI(
     proc.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString()
       output += text
-      onLog(text)
+      writeLog(logFile, text)   // always write to file
+      onLog(text)               // last line shown in status board
     })
 
     proc.stderr.on('data', (chunk: Buffer) => {
+      writeLog(logFile, chunk.toString())
       onLog(chunk.toString())
     })
 
@@ -176,10 +184,11 @@ async function runViaClaudeCLI(
     turns: 1,
     committed,
     summary: output.slice(0, 300),
+    logFile,
   }
 }
 
-/** Run agent via Anthropic SDK (direct API key) - fallback if claude CLI not available */
+/** Run agent via Anthropic SDK(direct API key) - fallback if claude CLI not available */
 async function runViaSDK(
   project: AahpProject,
   taskId: string,
@@ -247,10 +256,10 @@ async function runViaSDK(
     onLog(`\nMANIFEST.json updated - [${taskId}] marked done`)
   }
 
-  return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200) }
+  return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile: '' }
 }
 
-// ── GitHub Copilot backend (via GitHub Copilot API - OpenAI-compatible) ───────
+// ── GitHub Copilotbackend (via GitHub Copilot API - OpenAI-compatible) ───────
 
 /**
  * Calls the GitHub Copilot chat completions API using an OpenAI-compatible
@@ -369,7 +378,7 @@ async function runViaCopilot(
     onLog(`\nMANIFEST.json updated - [${taskId}] marked done`)
   }
 
-  return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200) }
+  return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile: '' }
 }
 
 function markTaskDone(project: AahpProject, taskId: string, task: AahpTask, turns: number, agentName: string) {
