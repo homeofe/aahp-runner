@@ -77,12 +77,7 @@ program
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
     const apiKey = opts.apiKey ?? process.env['ANTHROPIC_API_KEY'] ?? config.apiKey ?? ''
 
-    if (!apiKey) {
-      console.error(chalk.red('❌ No Anthropic API key found.'))
-      console.error('   Set ANTHROPIC_API_KEY env var, use --api-key, or run: aahp-runner config --api-key <key>')
-      process.exit(1)
-    }
-
+    // No key needed if claude CLI is available (Claude Code VS Code extension)
     const projects = scanProjects(rootDir)
     const actionable = projects.filter(p => p.readyTasks.length + p.activeTasks.length > 0)
 
@@ -114,6 +109,44 @@ program
       targets = [picked]
     }
 
+    // When --all --yes: run all in parallel
+    if (opts.all && opts.yes) {
+      console.log(chalk.bold(`\n🚀 Spawning ${targets.length} agents in parallel...\n`))
+      targets.forEach(p => {
+        const top = getTopTask(p)
+        if (top) console.log(chalk.gray(`  ⏳ ${p.name} → [${top[0]}] ${top[1].title}`))
+      })
+      console.log()
+
+      const results = await Promise.all(
+        targets.map(async project => {
+          const topTask = getTopTask(project)
+          if (!topTask) return
+          const [taskId, task] = topTask
+          try {
+            const result = await runAgent(project, taskId, task, apiKey, msg => {
+              // Prefix each log line with repo name for parallel clarity
+              process.stdout.write(chalk.gray(`[${project.name}] `) + msg + '\n')
+            })
+            if (result.success) {
+              console.log(chalk.green(`✅ ${project.name} [${taskId}] committed`))
+            } else {
+              console.log(chalk.yellow(`⚠️  ${project.name} [${taskId}] no commit detected`))
+            }
+            return result
+          } catch (err) {
+            console.error(chalk.red(`❌ ${project.name}: ${String(err)}`))
+          }
+        })
+      )
+
+      const done = results.filter(r => r?.success).length
+      const failed = results.filter(r => r && !r.success).length
+      console.log(chalk.bold(`\n📊 Done: ${done}/${targets.length} committed, ${failed} partial`))
+      return
+    }
+
+    // Sequential mode (single project or interactive)
     for (const project of targets) {
       const topTask = getTopTask(project)
       if (!topTask) continue
