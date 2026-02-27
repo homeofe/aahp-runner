@@ -26,7 +26,7 @@ Together they cover the full AAHP loop: you plan and guide during the day → th
    - Run builds and tests
    - Commit changes
    - Update MANIFEST.json (marks task done)
-4. Can run on a **daily schedule** via Windows Task Scheduler
+4. Can run on a **daily schedule** via cron (Linux/macOS) or Windows Task Scheduler
 
 ---
 
@@ -63,8 +63,11 @@ aahp-runner run --all
 # Run all without confirmation (for scheduled/unattended)
 aahp-runner run --all --yes
 
-# Register a daily Windows Task Scheduler job (runs at 2am)
+# Register a daily scheduled job (cron on Linux/macOS, Task Scheduler on Windows)
 aahp-runner schedule --time 02:00
+
+# Remove the scheduled job
+aahp-runner schedule --remove
 
 # Show/set config
 aahp-runner config
@@ -92,9 +95,16 @@ The agent has these tools: `read_file`, `write_file`, `list_dir`, `run_command`,
 aahp-runner schedule --time 02:00
 ```
 
-Registers `AAHP-Runner-Daily` in Windows Task Scheduler. Runs every night at 2:00 AM, processes all projects with ready tasks unattended.
+Registers a daily job that runs at 2:00 AM, processing all projects with ready tasks unattended.
 
-To remove: `schtasks /Delete /TN "AAHP-Runner-Daily" /F`
+- **Linux/macOS**: installs a cron entry (marker: `# AAHP-Runner-Daily`)
+- **Windows**: creates a Task Scheduler job (`AAHP-Runner-Daily`)
+
+To remove:
+
+```bash
+aahp-runner schedule --remove
+```
 
 ---
 
