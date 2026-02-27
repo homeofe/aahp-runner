@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "aahp-dashboard",
   "displayName": "AAHP Dashboard",
   "description": "Monitor AAHP agent runs, metrics, and resource usage directly in VS Code",
