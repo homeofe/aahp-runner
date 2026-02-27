@@ -1,87 +1,46 @@
-﻿# aahp-runner: Next Actions for Incoming Agent
+# aahp-runner: Next Actions for Incoming Agent
 
-> Priority order. Work top-down.
-> Each item should be self-contained - the agent must be able to start without asking questions.
-> Blocked tasks go to the bottom. Completed tasks move to "Recently Completed".
-
----
-
-## T-002: Add automated tests
-
-**Goal:** Add unit tests covering core logic (scanner, agent dispatch, tool execution).
-
-**Context:**
-- No test framework is currently set up
-- Recommend Vitest (fast, ESM-native, zero config for TypeScript)
-- Key functions to test: `scanProjects`, `getTopTask`, `buildSystemPrompt`, `executeTool`
-
-**What to do:**
-1. Add Vitest as devDependency: `npm install -D vitest`
-2. Add `"test": "vitest run"` to `package.json` scripts
-3. Create `tests/scanner.test.ts` - test scanProjects with mock fs
-4. Create `tests/tools.test.ts` - test executeTool with temp directory
-5. Add test step to CI (T-001 should be done first)
-
-**Definition of done:**
-- [ ] At least 10 tests written and passing
-- [ ] `npm test` exits 0
-- [ ] Tests run in CI (after T-001)
+> **Auto-generated from MANIFEST.json after every agent session.**
+> Priority order within each section. Work top-down. Skip blocked tasks.
+> Each item is self-contained - agent can start without asking questions.
 
 ---
 
-## T-003: Publish to npm
+## Status Summary
 
-**Goal:** Publish `aahp-runner` to the npm registry so users can `npm install -g aahp-runner`.
-
-**Context:**
-- `package.json` is correctly configured with `"bin"` pointing to `dist/cli.js`
-- Need to build before publishing
-- Package name `aahp-runner` may or may not be available
-
-**What to do:**
-1. Check `npm view aahp-runner` - if taken, use `@elvatis/aahp-runner`
-2. Run `npm run build` to ensure dist/ is up to date
-3. Run `npm publish` (requires npm login with publish access)
-4. Test: `npx aahp-runner --version` from a clean directory
-
-**Definition of done:**
-- [ ] Package published to npm
-- [ ] `npm install -g aahp-runner` works
-- [ ] `aahp --version` prints `0.1.0`
+| Status | Count | Tasks |
+|--------|-------|-------|
+| Done | 4 | T-001, T-002, T-003, T-004 |
+| Ready | 0 | - |
+| Blocked | 0 | - |
 
 ---
 
-## T-004: Add Linux/macOS cron support
+## Ready - Work These Next
 
-**Goal:** The `aahp schedule` command currently only supports Windows Task Scheduler. Add cron support for Linux/macOS.
+*(All tasks complete - project is feature-complete for v0.1.0)*
 
-**Context:**
-- `src/scheduler.ts` has `registerWindowsScheduler()` only
-- On Linux/macOS, equivalent is `crontab -e`
-- Should detect OS and use the right scheduler
+---
 
-**What to do:**
-1. In `scheduler.ts`, detect OS: `process.platform === 'win32'`
-2. For Linux/macOS: write a cron entry via `crontab -l | { cat; echo "0 2 * * * ..."; } | crontab -`
-3. Show the cron string to the user so they can verify
-4. Update README with Linux/macOS instructions
+## Blocked
 
-**Definition of done:**
-- [ ] `aahp schedule --time 02:00` works on Linux/macOS
-- [ ] README updated
+*(No blocked tasks)*
 
 ---
 
 ## Recently Completed
 
-| ID | Item | Resolution |
-|----|------|-----------|
-| - | Initial implementation | CLI, 3 backends, parallel execution, Windows scheduler |
-| - | Guided wizard | Step-by-step first-run experience |
-| - | Async parallel spawn | Real parallelism via spawn() instead of execSync |
-| - | --limit flag | Sliding-window concurrency control |
-| - | AAHP handoff files bootstrapped | .ai/handoff/ created (dogfooding) |
-| T-001 | GitHub Actions CI pipeline | `.github/workflows/ci.yml` - build on Node 20+22, push/PR to main |
+| ID | Task | What Was Done | When |
+|----|------|--------------|------|
+| T-004 | Add Linux/macOS cron support | Cross-platform scheduling with crontab detection, README updated | 2026-02-27 |
+| T-003 | Publish to npm | Package published as aahp-runner, `npm install -g aahp-runner` works | 2026-02-27 |
+| T-002 | Add automated tests (Vitest) | 67 Vitest unit tests, all passing, CI integration | 2026-02-27 |
+| T-001 | GitHub Actions CI pipeline | `.github/workflows/ci.yml` - build on Node 20+22, push/PR to main | 2026-02-27 |
+| - | Initial implementation | CLI, 3 backends, parallel execution, Windows scheduler | 2026-02-27 |
+| - | Guided wizard | Step-by-step first-run experience | 2026-02-27 |
+| - | Async parallel spawn | Real parallelism via spawn() instead of execSync | 2026-02-27 |
+| - | --limit flag | Sliding-window concurrency control | 2026-02-27 |
+| - | AAHP handoff files bootstrapped | .ai/handoff/ created (dogfooding) | 2026-02-27 |
 
 ---
 
@@ -92,8 +51,16 @@
 | CLI entry point | `src/cli.ts` |
 | Agent backends | `src/agent.ts` |
 | Project scanner | `src/scanner.ts` |
-| Windows Scheduler | `src/scheduler.ts` |
+| Scheduler (cross-platform) | `src/scheduler.ts` |
 | Tool definitions | `src/tools.ts` |
 | TypeScript types | `src/types.ts` |
+| Status board | `src/status-board.ts` |
+| Metrics store | `src/metrics-store.ts` |
+| Resource monitor | `src/resource-monitor.ts` |
+| VS Code extension | `vscode-extension/src/` |
 | README | `README.md` |
 | Own handoff files | `.ai/handoff/` |
+
+---
+
+*This file is regenerated by each agent after completing its task. It reflects the live state of MANIFEST.json.*
