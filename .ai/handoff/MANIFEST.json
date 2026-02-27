@@ -2,12 +2,12 @@
   "aahp_version": "3.0",
   "project": "aahp-runner",
   "last_session": {
-    "agent": "claude-sonnet-4.6",
-    "session_id": "bootstrap-2026-02-27",
-    "timestamp": "2026-02-27T02:31:15Z",
-    "commit": "4a66933",
-    "phase": "setup",
-    "duration_minutes": 15
+    "agent": "claude-opus-4.6",
+    "session_id": "ci-pipeline-2026-02-27",
+    "timestamp": "2026-02-27T12:00:00Z",
+    "commit": "eb2638f",
+    "phase": "implement",
+    "duration_minutes": 5
   },
   "files": {
     "STATUS.md": {
@@ -53,7 +53,7 @@
       "summary": "4-phase pipeline: research, architect, implement, review"
     }
   },
-  "quick_context": "aahp-runner v0.1.0: autonomous AAHP agent runner. 3 backends (claude-cli, copilot, sdk), 5 commands, parallel execution. Missing: CI, tests, npm publish.",
+  "quick_context": "aahp-runner v0.1.0: autonomous AAHP agent runner. 3 backends (claude-cli, copilot, sdk), 5 commands, parallel execution. CI added. Missing: tests, npm publish.",
   "token_budget": {
     "manifest_only": 80,
     "manifest_plus_core": 1200,
@@ -63,10 +63,11 @@
   "tasks": {
     "T-001": {
       "title": "Add GitHub Actions CI pipeline",
-      "status": "ready",
+      "status": "done",
       "priority": "medium",
       "depends_on": [],
-      "created": "2026-02-27T02:31:15Z"
+      "created": "2026-02-27T02:31:15Z",
+      "completed": "2026-02-27T12:00:00Z"
     },
     "T-002": {
       "title": "Add automated tests (Vitest)",

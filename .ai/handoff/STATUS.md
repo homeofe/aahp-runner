@@ -1,7 +1,7 @@
 # aahp-runner: Current State of the Nation
 
-> Last updated: 2026-02-27 by Claude Sonnet 4.6
-> Commit: 4a66933
+> Last updated: 2026-02-27 by Claude Opus 4.6
+> Commit: eb2638f
 >
 > **Rule:** This file is rewritten (not appended) at the end of every session.
 > It reflects the *current* reality, not history. History lives in LOG.md.
@@ -13,7 +13,7 @@ aahp-runner v0.1.0 is functional. CLI builds and runs correctly. Three agent bac
 implemented: claude-cli (Claude Code), GitHub Copilot, and Anthropic SDK. Commands:
 list, run, config, schedule, status. Guided wizard for first-time users. Parallel
 agent execution with concurrency limit (--limit). Windows Task Scheduler integration.
-AAHP v3 handoff files bootstrapped (dogfooding).
+GitHub Actions CI pipeline added (Node 20+22, build validation on push/PR to main).
 <!-- /SECTION: summary -->
 
 ---
@@ -30,7 +30,7 @@ AAHP v3 handoff files bootstrapped (dogfooding).
 | `aahp config` | ✅ | Reads/writes ~/.aahp-runner.json |
 | `aahp schedule` | ✅ | Windows Task Scheduler registration |
 | Automated tests | ❌ | Not yet written (T-002) |
-| CI pipeline | ❌ | Not yet set up (T-001) |
+| CI pipeline | ✅ | GitHub Actions on push/PR, Node 20+22 |
 <!-- /SECTION: build_health -->
 
 ---
@@ -48,7 +48,7 @@ AAHP v3 handoff files bootstrapped (dogfooding).
 | TypeScript types | `src/types.ts` | ✅ Complete | AahpTask, AahpManifest, AahpProject |
 | Compiled output | `dist/` | ✅ Up to date | Built from src/ |
 | README | `README.md` | ✅ Complete | Setup, commands, examples |
-| CI pipeline | `.github/workflows/` | ❌ Missing | T-001 |
+| CI pipeline | `.github/workflows/ci.yml` | ✅ Complete | Build on Node 20+22 |
 | Automated tests | `tests/` | ❌ Missing | T-002 |
 | npm publish | (registry) | ❌ Not published | T-003 |
 <!-- /SECTION: components -->
@@ -60,7 +60,6 @@ AAHP v3 handoff files bootstrapped (dogfooding).
 
 | Gap | Severity | Description |
 |-----|----------|-------------|
-| CI pipeline | MEDIUM | No GitHub Actions to validate builds on PR |
 | Automated tests | MEDIUM | No unit or integration tests |
 | npm publish | LOW | Package not published to npm registry |
 | Linux/macOS cron | LOW | `aahp schedule` only supports Windows |
