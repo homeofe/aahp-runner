@@ -182,6 +182,23 @@ program
         board.refresh()
 
         try {
+          // Security pre-run guard (non-blocking if secure-dev-ai not installed)
+          try {
+            const secureDevAi = path.join(DEFAULT_ROOT, 'secure-dev-ai', 'dist', 'cli.js')
+            if (fs.existsSync(secureDevAi)) {
+              const guardResult = await runAsync('node', [secureDevAi, 'guard', '--pre', '--project', project.name], project.repoPath, 30000)
+              if (guardResult.code === 1) {
+                st.state = 'failed'
+                st.finishedAt = new Date()
+                st.lastLine = 'blocked by secure-dev-ai (CRITICAL findings)'
+                board.refresh()
+                return { success: false, committed: false, turns: 0, taskId, summary: 'blocked by secure-dev-ai (CRITICAL findings)', logFile: '' }
+              }
+            }
+          } catch {
+            // secure-dev-ai scan failed - continue without blocking
+          }
+
           const result = await runAgent(project, taskId, task, apiKey, msg => {
             // Only update the last meaningful line for the status board (skip blanks)
             const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
