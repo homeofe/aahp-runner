@@ -1,6 +1,96 @@
 import * as fs from 'fs'
 import * as path from 'path'
+import { execSync } from 'child_process'
 import type { AahpManifest, AahpProject, AahpTask } from './types.js'
+
+interface GitHubIssue {
+  number: number
+  title: string
+  body: string
+  labels: Array<{ name: string }>
+}
+
+/** Detect owner/repo from git remote origin URL */
+function detectGitHubRepo(repoPath: string): string | null {
+  try {
+    const url = execSync('git remote get-url origin', { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] })
+      .toString().trim()
+    // https://github.com/owner/repo.git  or  git@github.com:owner/repo.git
+    const match = url.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/)
+    return match ? (match[1] ?? null) : null
+  } catch {
+    return null
+  }
+}
+
+/** Map GitHub labels to AAHP task priority */
+function labelsToPriority(labels: Array<{ name: string }>): AahpTask['priority'] {
+  const names = labels.map(l => l.name.toLowerCase())
+  if (names.some(n => n.includes('bug') || n.includes('critical') || n.includes('urgent'))) return 'high'
+  if (names.some(n => n.includes('enhancement') || n.includes('feature') || n.includes('medium'))) return 'medium'
+  return 'low'
+}
+
+/** Fetch open GitHub issues and import any new ones as ready tasks into the manifest.
+ *  Returns the (possibly updated) manifest. Writes to disk if new tasks were added. */
+export function fetchAndImportGitHubIssues(
+  repoPath: string,
+  handoffDir: string,
+  manifest: AahpManifest
+): AahpManifest {
+  const repo = detectGitHubRepo(repoPath)
+  if (!repo) return manifest
+
+  let issues: GitHubIssue[]
+  try {
+    const output = execSync(
+      `gh issue list --repo ${repo} --state open --json number,title,body,labels --limit 50`,
+      { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 }
+    ).toString()
+    issues = JSON.parse(output) as GitHubIssue[]
+  } catch {
+    // gh not installed, not authenticated, or no GitHub remote - skip silently
+    return manifest
+  }
+
+  if (!issues.length) return manifest
+
+  const tasks = manifest.tasks ?? {}
+  let nextId = manifest.next_task_id ?? (Object.keys(tasks).length + 1)
+  let changed = false
+
+  // Build a set of already-imported issue numbers
+  const importedIssueNumbers = new Set(
+    Object.values(tasks)
+      .map(t => t.github_issue)
+      .filter((n): n is number => n !== undefined)
+  )
+
+  for (const issue of issues) {
+    if (importedIssueNumbers.has(issue.number)) continue
+
+    const taskId = `T-${String(nextId).padStart(3, '0')}`
+    tasks[taskId] = {
+      title: issue.title,
+      status: 'ready',
+      priority: labelsToPriority(issue.labels),
+      depends_on: [],
+      created: new Date().toISOString(),
+      notes: issue.body ? issue.body.slice(0, 500) : undefined,
+      github_issue: issue.number,
+      github_repo: repo,
+    }
+    nextId++
+    changed = true
+  }
+
+  if (!changed) return manifest
+
+  const updated: AahpManifest = { ...manifest, tasks, next_task_id: nextId }
+  const manifestPath = path.join(handoffDir, 'MANIFEST.json')
+  fs.writeFileSync(manifestPath, JSON.stringify(updated, null, 2) + '\n', 'utf8')
+  return updated
+}
 
 export function scanProjects(rootDir: string): AahpProject[] {
   const projects: AahpProject[] = []
@@ -26,6 +116,9 @@ export function scanProjects(rootDir: string): AahpProject[] {
     } catch {
       continue
     }
+
+    // Fetch open GitHub issues and import any new ones as ready tasks
+    manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest)
 
     const tasks = manifest.tasks ?? {}
     const readyTasks = Object.entries(tasks).filter(
@@ -92,6 +185,8 @@ export function buildSystemPrompt(project: AahpProject, taskId: string, task: Aa
     `### Your Task: [${taskId}] ${task.title}`,
     `Priority: ${task.priority} | Status: ${task.status}`,
     task.depends_on?.length ? `Depends on: ${task.depends_on.join(', ')}` : '',
+    task.github_issue ? `GitHub Issue: #${task.github_issue} in ${task.github_repo}` : '',
+    task.notes ? `\nIssue description:\n${task.notes}` : '',
     ``,
     `### All Open Tasks`,
     openTasks,
@@ -108,6 +203,9 @@ export function buildSystemPrompt(project: AahpProject, taskId: string, task: Aa
     `4. Commit your changes with a conventional commit message`,
     `5. Update MANIFEST.json: mark [${taskId}] as done, update quick_context, last_session`,
     `   Also unblock any tasks whose depends_on are now all done (change status blocked -> ready).`,
+    task.github_issue
+      ? `   Then close GitHub issue #${task.github_issue}: run \`gh issue close ${task.github_issue} --repo ${task.github_repo} --comment "Resolved in [commit hash] via AAHP task ${taskId}"\``
+      : '',
     `6. Regenerate .ai/handoff/NEXT_ACTIONS.md to reflect the CURRENT state of all tasks:`,
     `   - Top section: Status Summary table (Done | Ready | Blocked counts)`,
     `   - Section "## ⚡ Ready - Work These Next": all tasks with status=ready, sorted high>medium>low priority`,

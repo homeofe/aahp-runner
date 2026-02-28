@@ -74,7 +74,8 @@ program
       console.log(chalk.gray(`    ${project.manifest.quick_context.slice(0, 80)}`))
       if (topTask) {
         const [id, task] = topTask
-        console.log(`    ${statusIcon[task.status] ?? '•'} ${chalk.yellow(id)}: ${task.title} ${chalk.gray(`(${task.priority})`)}`)
+        const issueTag = task.github_issue ? chalk.cyan(` [GH#${task.github_issue}]`) : ''
+        console.log(`    ${statusIcon[task.status] ?? '•'} ${chalk.yellow(id)}: ${task.title} ${chalk.gray(`(${task.priority})`)}${issueTag}`)
       }
       if (project.readyTasks.length + project.activeTasks.length > 1) {
         console.log(chalk.gray(`    ... and ${taskCount - 1} more task(s)`))
@@ -756,7 +757,8 @@ program.action(async () => {
     if (!top) continue
     const [id, task] = top
     const priorityColor = task.priority === 'high' ? chalk.red : task.priority === 'medium' ? chalk.yellow : chalk.cyan
-    console.log(`  ${chalk.bold(p.name.padEnd(28))} ${priorityColor(`[${id}]`)} ${task.title}`)
+    const issueTag = task.github_issue ? chalk.cyan(` [GH#${task.github_issue}]`) : ''
+    console.log(`  ${chalk.bold(p.name.padEnd(28))} ${priorityColor(`[${id}]`)} ${task.title}${issueTag}`)
   }
 
   console.log()

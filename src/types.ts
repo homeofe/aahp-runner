@@ -7,6 +7,8 @@ export interface AahpTask {
   created: string
   completed?: string
   notes?: string
+  github_issue?: number      // GitHub issue number this task was imported from
+  github_repo?: string       // owner/repo slug (e.g. "homeofe/openclaw-ops")
 }
 
 export interface AahpManifest {
