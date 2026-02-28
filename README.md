@@ -20,13 +20,22 @@ Together they cover the full AAHP loop: you plan and guide during the day → th
 ## How it works
 
 1. Scans a root development folder for all repos with `.ai/handoff/MANIFEST.json`
-2. For each project with `ready` or `in_progress` tasks, spawns a **Claude claude-opus-4-5 agent**
+2. For each project with `ready` or `in_progress` tasks, spawns an agent using the configured backend
 3. The agent reads the full AAHP context (phase, task, conventions, trust state) and uses tools to:
    - Read/write files
    - Run builds and tests
    - Commit changes
    - Update MANIFEST.json (marks task done)
 4. Can run on a **daily schedule** via cron (Linux/macOS) or Windows Task Scheduler
+
+### Agent backends
+
+| Backend | Description | Requirements |
+|---------|-------------|-------------|
+| `auto` (default) | Auto-detects: tries `claude`, then `copilot` | Claude Code or Copilot extension |
+| `claude` | Claude Code VS Code extension | Claude Code extension installed |
+| `copilot` | GitHub Copilot via `gh` CLI | `gh auth login` |
+| `sdk` | Anthropic API directly | `ANTHROPIC_API_KEY` env var |
 
 ---
 
@@ -35,12 +44,15 @@ Together they cover the full AAHP loop: you plan and guide during the day → th
 ```bash
 npm install -g aahp-runner
 
-# Configure once
-aahp-runner config --root "E:\_Development" --api-key "sk-ant-..."
+# Configure once (API key only needed for --backend sdk)
+aahp-runner config --root "E:\_Development"
+
+# For SDK backend (direct Anthropic API)
+aahp-runner config --api-key "sk-ant-..."
 
 # Or use env vars
 export AAHP_ROOT="E:\_Development"
-export ANTHROPIC_API_KEY="sk-ant-..."
+export ANTHROPIC_API_KEY="sk-ant-..."   # only needed for --backend sdk
 ```
 
 ---
@@ -54,8 +66,14 @@ aahp-runner list
 # Quick status overview
 aahp-runner status
 
+# Auto-refresh status every 3s (Ctrl+C to stop)
+aahp-runner status --watch
+
 # Run agent on a specific project (interactive confirm)
 aahp-runner run openclaw-ops
+
+# Run with explicit backend, timeout, and concurrency limit
+aahp-runner run --all --backend claude --timeout 20 --limit 3
 
 # Run agent on all projects with ready tasks
 aahp-runner run --all
@@ -69,10 +87,28 @@ aahp-runner schedule --time 02:00
 # Remove the scheduled job
 aahp-runner schedule --remove
 
+# Show or tail agent logs
+aahp-runner logs                      # list all log files
+aahp-runner logs openclaw-ops         # show last 40 lines
+aahp-runner logs openclaw-ops -f      # stream in real-time (like tail -f)
+aahp-runner logs openclaw-ops -n 100  # show last 100 lines
+
+# Show historical run metrics
+aahp-runner metrics                   # last 30 days, all repos
+aahp-runner metrics --repo openclaw-ops --days 7
+aahp-runner metrics --json            # raw JSON export
+
 # Show/set config
 aahp-runner config
 aahp-runner config --root "E:\_Development" --api-key "sk-ant-..."
+aahp-runner config --backend claude
+aahp-runner config --timeout 20
+aahp-runner config --alert-webhook "https://example.com/hook"
+aahp-runner config --alert-slack "https://hooks.slack.com/..."
+aahp-runner config --alert-clear
 ```
+
+Running `aahp` or `aahp-runner` with no arguments launches a guided setup wizard.
 
 ---
 
@@ -110,9 +146,9 @@ aahp-runner schedule --remove
 
 ## Requirements
 
-- Node.js ≥ 20
-- Anthropic API key (Claude claude-opus-4-5)
+- Node.js >= 20
 - Repos with AAHP v3 `.ai/handoff/MANIFEST.json` ([spec](https://github.com/elvatis/AAHP))
+- One of: Claude Code extension, GitHub Copilot (`gh auth login`), or Anthropic API key (`--backend sdk`)
 
 ---
 
