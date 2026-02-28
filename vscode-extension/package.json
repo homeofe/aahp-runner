@@ -2,7 +2,7 @@
   "name": "aahp-dashboard",
   "displayName": "AAHP Dashboard",
   "description": "Monitor AAHP agent runs, metrics, and resource usage directly in VS Code",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "elvatis",
   "license": "MIT",
   "engines": {
@@ -17,17 +17,107 @@
     "commands": [
       {
         "command": "aahp.openDashboard",
-        "title": "AAHP: Open Dashboard"
+        "title": "AAHP: Open Dashboard",
+        "icon": "$(dashboard)"
       },
       {
         "command": "aahp.showMetrics",
-        "title": "AAHP: Show Metrics"
+        "title": "AAHP: Show Metrics",
+        "icon": "$(graph)"
       },
       {
         "command": "aahp.refreshDashboard",
-        "title": "AAHP: Refresh Dashboard"
+        "title": "AAHP: Refresh Dashboard",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "aahp.fixTask",
+        "title": "AAHP: Fix Task with Claude",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "aahp.fixAllTasks",
+        "title": "AAHP: Fix All Open Tasks",
+        "icon": "$(run-all)"
+      },
+      {
+        "command": "aahp.runProject",
+        "title": "AAHP: Run Agent on Project",
+        "icon": "$(play)"
+      },
+      {
+        "command": "aahp.openProjectFolder",
+        "title": "AAHP: Open Project Folder",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "aahp.openManifest",
+        "title": "AAHP: Open MANIFEST.json",
+        "icon": "$(json)"
+      },
+      {
+        "command": "aahp.viewLogs",
+        "title": "AAHP: View Project Logs",
+        "icon": "$(output)"
       }
     ],
+    "keybindings": [
+      {
+        "command": "aahp.openDashboard",
+        "key": "ctrl+alt+a"
+      },
+      {
+        "command": "aahp.fixAllTasks",
+        "key": "ctrl+alt+f"
+      },
+      {
+        "command": "aahp.refreshDashboard",
+        "key": "ctrl+alt+r"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "aahp.openDashboard",
+          "when": "view == aahp.agents",
+          "group": "navigation"
+        },
+        {
+          "command": "aahp.refreshDashboard",
+          "when": "view == aahp.agents",
+          "group": "navigation"
+        },
+        {
+          "command": "aahp.fixAllTasks",
+          "when": "view == aahp.agents",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "aahp.fixTask",
+          "when": "viewItem == readyTask",
+          "group": "inline"
+        },
+        {
+          "command": "aahp.runProject",
+          "when": "viewItem == aahpProject",
+          "group": "inline"
+        },
+        {
+          "command": "aahp.openProjectFolder",
+          "when": "viewItem == aahpProject"
+        },
+        {
+          "command": "aahp.openManifest",
+          "when": "viewItem == aahpProject"
+        },
+        {
+          "command": "aahp.viewLogs",
+          "when": "viewItem == aahpProject"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -41,7 +131,7 @@
       "aahp-explorer": [
         {
           "id": "aahp.agents",
-          "name": "Agents"
+          "name": "Agents & Projects"
         },
         {
           "id": "aahp.metrics",
@@ -52,7 +142,7 @@
     "viewsWelcome": [
       {
         "view": "aahp.agents",
-        "contents": "Loading AAHP projects...\n[Open Dashboard](command:aahp.openDashboard)\n[Refresh](command:aahp.refreshDashboard)"
+        "contents": "Loading AAHP projects...\n[Open Dashboard](command:aahp.openDashboard)\n[Refresh](command:aahp.refreshDashboard)\n[Fix All Open Tasks](command:aahp.fixAllTasks)"
       }
     ]
   },
