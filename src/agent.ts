@@ -132,6 +132,7 @@ async function runViaClaudeCLI(
         cwd: project.repoPath,
         shell: process.platform === 'win32',
         env: { ...process.env, CLAUDECODE: undefined },
+        stdio: ['pipe', 'pipe', 'pipe'],
       }
     )
 
@@ -237,6 +238,9 @@ async function runViaSDK(
   let timedOut = false
   const deadline = Date.now() + timeoutMs
 
+  const logFile = agentLogPath(project.name)
+  writeLog(logFile, `=== AAHP SDK [${taskId}] ${task.title}\n=== ${new Date().toISOString()}\n${'='.repeat(60)}\n`)
+
   onLog(`\nSDK agent starting on [${taskId}]: ${task.title}`)
   onLog(`   Backend: Anthropic SDK (API key)`)
   onLog(`   Timeout: ${Math.round(timeoutMs / 60000)}m`)
@@ -288,10 +292,10 @@ async function runViaSDK(
   }
   if (timedOut) onLog(`\nAgent was stopped due to timeout after ${turns} turns`)
 
-  return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile: '' }
+  return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile }
 }
 
-// ── GitHub Copilotbackend (via GitHub Copilot API - OpenAI-compatible) ───────
+// ── GitHub Copilot backend (via GitHub Copilot API - OpenAI-compatible) ──────
 
 /**
  * Calls the GitHub Copilot chat completions API using an OpenAI-compatible
@@ -309,6 +313,9 @@ async function runViaCopilot(
   timeoutMs: number = 10 * 60 * 1000
 ): Promise<AgentResult> {
   const systemPrompt = buildSystemPrompt(project, taskId, task)
+  const logFile = agentLogPath(project.name)
+  writeLog(logFile, `=== AAHP Copilot [${taskId}] ${task.title}\n=== ${new Date().toISOString()}\n${'='.repeat(60)}\n`)
+
   const MAX_TURNS = 30
   const COPILOT_ENDPOINT = 'https://api.githubcopilot.com/chat/completions'
   const MODEL = 'gpt-4o'
@@ -437,7 +444,7 @@ async function runViaCopilot(
   }
   if (timedOut) onLog(`\nAgent was stopped due to timeout after ${turns} turns`)
 
-  return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile: '' }
+  return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile }
 }
 
 function markTaskDone(project: AahpProject, taskId: string, task: AahpTask, turns: number, agentName: string) {
