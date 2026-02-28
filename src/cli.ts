@@ -706,7 +706,7 @@ program.action(async () => {
     console.log(chalk.yellow('Step 1 of 3: Set your development root folder'))
     console.log(chalk.gray('  This is the folder containing all your repos.'))
     console.log()
-    console.log(chalk.white('  Run:') + chalk.cyan(`  aahp config --root "E:\\example.com\\_Data\\_Development"`))
+    console.log(chalk.white('  Run:') + chalk.cyan(`  aahp config --root "E:\\_Development"`))
     console.log()
     return
   }
