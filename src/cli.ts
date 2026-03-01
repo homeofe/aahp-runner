@@ -42,9 +42,10 @@ function getLastLogLine(repoName: string): string {
 
 program
   .command('list')
-  .description('List all AAHP projects and their top ready tasks')
+  .description('List AAHP projects that have actionable tasks')
   .option('-r, --root <path>', 'Root development folder', DEFAULT_ROOT)
-  .action((opts: { root: string }) => {
+  .option('-a, --all', 'Include idle projects with no tasks')
+  .action((opts: { root: string; all: boolean }) => {
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
     const projects = scanProjects(rootDir)
@@ -55,39 +56,99 @@ program
       return
     }
 
-    console.log(chalk.bold(`\n📋 AAHP Projects in ${rootDir}\n`))
-    const statusIcon: Record<string, string> = {
-      done: '✅', in_progress: '🔄', ready: '⏳', blocked: '🚫', pending: '💤',
+    const actionable = opts.all
+      ? projects
+      : projects.filter(p => p.readyTasks.length + p.activeTasks.length > 0)
+
+    const totalTasks = projects.reduce((n, p) => n + p.readyTasks.length + p.activeTasks.length, 0)
+    const idleCount  = projects.length - actionable.length
+
+    if (actionable.length === 0) {
+      console.log(chalk.green('\n✅ All projects are up to date - no actionable tasks'))
+      console.log(chalk.gray(`   ${projects.length} projects scanned · use --all to show them`))
+      return
     }
 
-    for (const project of projects) {
-      const topTask = getTopTask(project)
+    const ICON: Record<string, string> = {
+      in_progress: '🔄', ready: '⏳', blocked: '🚫', pending: '💤', done: '✅',
+    }
+    const PRI_COLOR: Record<string, (s: string) => string> = {
+      high: (s) => chalk.red(s), medium: (s) => chalk.yellow(s), low: (s) => chalk.gray(s),
+    }
+
+    // Column widths - dynamic based on content, capped for readability
+    const termWidth = process.stdout.columns || 100
+    const W_NAME  = Math.min(30, Math.max(12, ...actionable.map(p => p.name.length)))
+    const W_PHASE = Math.min(16, Math.max(5,  ...actionable.map(p => (p.manifest.last_session.phase ?? '').length)))
+    const W_CNT   = 5
+    // Top-task column gets whatever remains
+    const W_TASK  = Math.max(20, termWidth - W_NAME - W_PHASE - W_CNT - 13)
+
+    // Helpers
+    const trunc = (s: string, n: number) => s.length > n ? s.slice(0, n - 1) + '…' : s
+    const cell  = (s: string, w: number) => trunc(s, w).padEnd(w)
+
+    const divider = (l: string, m: string, r: string) =>
+      chalk.gray(l + '─'.repeat(W_NAME + 2) + m + '─'.repeat(W_PHASE + 2) + m +
+        '─'.repeat(W_CNT + 2) + m + '─'.repeat(W_TASK + 2) + r)
+
+    const headerRow =
+      chalk.gray('│ ') + chalk.bold(cell('Project', W_NAME)) +
+      chalk.gray(' │ ') + chalk.bold(cell('Phase', W_PHASE)) +
+      chalk.gray(' │ ') + chalk.bold(cell('Tasks', W_CNT)) +
+      chalk.gray(' │ ') + chalk.bold(cell('Top Task', W_TASK)) +
+      chalk.gray(' │')
+
+    console.log(chalk.bold(`\n📋 AAHP  ·  ${actionable.length} project${actionable.length !== 1 ? 's' : ''} with tasks\n`))
+    console.log(divider('┌', '┬', '┐'))
+    console.log(headerRow)
+    console.log(divider('├', '┼', '┤'))
+
+    for (const project of actionable) {
+      const topTask  = getTopTask(project)
       const taskCount = project.readyTasks.length + project.activeTasks.length
-      const phase = chalk.cyan(`[${project.manifest.last_session.phase}]`)
+      const phase    = project.manifest.last_session.phase ?? ''
+      const isActive = project.activeTasks.length > 0
 
-      if (taskCount === 0) {
-        console.log(chalk.gray(`  ${project.name} ${phase} - no ready tasks`))
-        continue
-      }
-
-      console.log(chalk.bold(`  ${project.name} ${phase}`))
-      console.log(chalk.gray(`    ${project.manifest.quick_context.slice(0, 80)}`))
+      // Build top-task string (plain, so cell() can truncate correctly)
+      let taskStr = ''
       if (topTask) {
         const [id, task] = topTask
-        const issueTag = task.github_issue ? chalk.cyan(` [GH#${task.github_issue}]`) : ''
-        console.log(`    ${statusIcon[task.status] ?? '•'} ${chalk.yellow(id)}: ${task.title} ${chalk.gray(`(${task.priority})`)}${issueTag}`)
+        const icon   = ICON[task.status] ?? '•'
+        const pri    = task.priority.slice(0, 3)
+        const gh     = task.github_issue ? ` #${task.github_issue}` : ''
+        // icon is 2 wide; reserve those columns from the title budget
+        const titleBudget = W_TASK - id.length - pri.length - gh.length - 6
+        const title  = trunc(task.title, Math.max(8, titleBudget))
+        taskStr = `${icon} ${id} (${pri}) ${title}${gh}`
       }
-      if (project.readyTasks.length + project.activeTasks.length > 1) {
-        console.log(chalk.gray(`    ... and ${taskCount - 1} more task(s)`))
-      }
-      console.log()
+
+      const nameCell  = cell(project.name, W_NAME)
+      const phaseCell = cell(phase, W_PHASE)
+      const cntCell   = cell(String(taskCount), W_CNT)
+      const taskCell  = cell(taskStr, W_TASK)
+
+      const nameColored  = (isActive ? chalk.white.bold : chalk.white)(nameCell)
+      const phaseColored = chalk.cyan(phaseCell)
+      const cntColored   = chalk.yellow(cntCell)
+
+      console.log(
+        chalk.gray('│ ') + nameColored +
+        chalk.gray(' │ ') + phaseColored +
+        chalk.gray(' │ ') + cntColored +
+        chalk.gray(' │ ') + taskCell +
+        chalk.gray(' │')
+      )
     }
 
-    const total = projects.reduce((n, p) => n + p.readyTasks.length + p.activeTasks.length, 0)
-    console.log(chalk.bold(`  Total: ${projects.length} projects, ${total} actionable tasks`))
-    console.log(chalk.gray(`\n  Run: aahp-runner run <project-name>`))
-    console.log(chalk.gray(`  Run all: aahp-runner run --all`))
+    console.log(divider('└', '┴', '┘'))
+
+    const idleNote = !opts.all && idleCount > 0 ? chalk.gray(` · ${idleCount} idle hidden (--all)`) : ''
+    console.log(chalk.gray(`\n  ${actionable.length} projects · `) + chalk.yellow(String(totalTasks)) + chalk.gray(` tasks${idleNote}`))
+    console.log(chalk.gray(`  aahp run --all --yes   to start all agents`))
+    console.log()
   })
+
 
 // ── run ───────────────────────────────────────────────────────────────────────
 
