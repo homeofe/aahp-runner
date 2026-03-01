@@ -78,7 +78,7 @@ function termRowCount(lines: string[], termCols: number): number {
 }
 
 function elapsed(s: AgentStatus): string {
-  if (!s.startedAt) return chalk.gray('queued')
+  if (!s.startedAt) return 'queued'
   const ms = (s.finishedAt ?? new Date()).getTime() - s.startedAt.getTime()
   const sec = Math.floor(ms / 1000)
   return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m${sec % 60}s`
@@ -114,58 +114,86 @@ export class StatusBoard {
     const running = this._agents.filter(a => a.state === 'running').length
     const total   = this._agents.length
 
+    const termWidth = process.stdout.columns || 100
+
+    // Column widths (all in visible terminal columns)
+    // Layout: │ icon │ name │ task │ time │ hint │
+    // Fixed overhead: 1+4+1 + (W+2+1)×4 + (W+2+1) + 1 = 18 chars of borders/padding
+    const W_NAME = Math.min(28, Math.max(12, ...this._agents.map(a => a.repo.length)))
+    const W_TASK = 6    // T-XXX
+    const W_TIME = 7    // 99m59s
+    const W_HINT = Math.max(16, termWidth - W_NAME - W_TASK - W_TIME - 18)
+
+    const trunc = (s: string, n: number) =>
+      s.length > n ? s.slice(0, n - 1) + '…' : s.padEnd(n)
+
+    const divider = (l: string, m: string, r: string) =>
+      chalk.gray(
+        l + '─'.repeat(4) +                   // icon cell: space + 2-wide emoji + space
+        m + '─'.repeat(W_NAME + 2) +
+        m + '─'.repeat(W_TASK + 2) +
+        m + '─'.repeat(W_TIME + 2) +
+        m + '─'.repeat(W_HINT + 2) + r
+      )
+
     const lines: string[] = []
 
-    // Header summary line
-    const parts = [
-      chalk.bold(`🤖 AAHP`),
+    // Header summary
+    const summary = [
+      chalk.bold('🤖 AAHP'),
       chalk.green(`${done}/${total} done`),
       running > 0 ? chalk.cyan(`${running} running`) : '',
       failed  > 0 ? chalk.red(`${failed} failed`)    : '',
     ].filter(Boolean).join(chalk.gray(' · '))
-    lines.push(parts)
-    lines.push(chalk.gray('─'.repeat(60)))
-
-    // One line per agent
-    const hasResources = this._agents.some(a => a.cpuPercent !== undefined || a.memMB !== undefined)
+    lines.push(summary)
+    lines.push(divider('┌', '┬', '┐'))
 
     for (const s of this._agents) {
-      const icon    = STATUS_ICON[s.state]
-      const name    = (s.state === 'running' ? chalk.white : chalk.gray)(s.repo.padEnd(26))
-      const task    = chalk.yellow(`[${s.taskId}]`)
-      const time    = chalk.gray(elapsed(s).padStart(6))
+      const icon = STATUS_ICON[s.state]   // 2-wide emoji
 
-      // Resource columns (only shown when data is available)
-      let resources = ''
-      if (hasResources) {
-        const cpu = s.cpuPercent !== undefined ? chalk.magenta(`${Math.round(s.cpuPercent)}%`.padStart(5)) : '     '
-        const mem = s.memMB !== undefined ? chalk.blue(`${s.memMB}MB`.padStart(7)) : '       '
-        resources = ` ${cpu} ${mem}`
-      }
-
-      // ETA column
-      let eta = ''
+      // Hint: ETA → turn counter → last log line
+      let hintText = ''
       if (s.state === 'running' && s.estimatedEndAt) {
-        const remainMs = s.estimatedEndAt.getTime() - Date.now()
-        if (remainMs > 0) {
-          const remainSec = Math.floor(remainMs / 1000)
-          eta = chalk.gray(` ~${remainSec < 60 ? remainSec + 's' : Math.ceil(remainSec / 60) + 'm'}`)
+        const rem = s.estimatedEndAt.getTime() - Date.now()
+        if (rem > 0) {
+          const remSec = Math.floor(rem / 1000)
+          hintText = `~${remSec < 60 ? remSec + 's' : Math.ceil(remSec / 60) + 'm'} left`
         }
-      } else if (s.state === 'running' && s.currentTurn && s.maxTurns) {
-        eta = chalk.gray(` t${s.currentTurn}/${s.maxTurns}`)
+      }
+      if (!hintText && s.state === 'running' && s.currentTurn && s.maxTurns) {
+        hintText = `turn ${s.currentTurn}/${s.maxTurns}`
+      }
+      if (!hintText && s.lastLine) {
+        hintText = s.lastLine.replace(/\s+/g, ' ')
       }
 
-      const hint    = s.lastLine
-        ? chalk.gray(' · ' + s.lastLine.replace(/\s+/g, ' ').slice(0, 24))
-        : ''
-      lines.push(`  ${icon} ${name} ${task} ${time}${resources}${eta}${hint}`)
+      const nameStr = trunc(s.repo, W_NAME)
+      const taskStr = trunc(s.taskId, W_TASK)
+      const timeStr = elapsed(s).padStart(W_TIME).slice(0, W_TIME)
+      const hintStr = trunc(hintText, W_HINT)
+
+      const nameColored = (s.state === 'running' ? chalk.white.bold : chalk.gray)(nameStr)
+      const taskColored = chalk.yellow(taskStr)
+      const timeColored = chalk.gray(timeStr)
+      const hintColored =
+        s.state === 'done'   ? chalk.green(hintStr) :
+        s.state === 'failed' ? chalk.red(hintStr)   :
+        chalk.gray(hintStr)
+
+      lines.push(
+        chalk.gray('│ ') + icon + chalk.gray(' │ ') + nameColored +
+        chalk.gray(' │ ') + taskColored +
+        chalk.gray(' │ ') + timeColored +
+        chalk.gray(' │ ') + hintColored +
+        chalk.gray(' │')
+      )
     }
 
-    lines.push(chalk.gray('─'.repeat(hasResources ? 80 : 60)))
-    lines.push(chalk.gray(`Logs: tail -f ~/.aahp/logs/<repo>.log  |  aahp logs <repo>`))
-    lines.push('')  // blank trailing line
+    lines.push(divider('└', '┴', '┘'))
+    lines.push(chalk.gray('  aahp logs <repo> for details'))
+    lines.push('')  // trailing newline
 
-    this._headerLines = termRowCount(lines, process.stdout.columns || 80)
+    this._headerLines = termRowCount(lines, termWidth)
     process.stdout.write(lines.join('\n'))
     this._drawn = true
   }
