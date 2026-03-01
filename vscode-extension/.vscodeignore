@@ -1,0 +1,7 @@
+src/**
+**/*.ts
+**/*.map
+tsconfig.json
+.npmrc
+package-lock.json
+*.vsix
