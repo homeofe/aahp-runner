@@ -173,10 +173,17 @@ program
 
     // No key needed if claude CLI is available (Claude Code VS Code extension)
     const projects = scanProjects(rootDir)
-    const actionable = projects.filter(p => p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length > 0)
+    // run only operates on ready/active tasks - blocked tasks need manual intervention
+    const actionable = projects.filter(p => p.readyTasks.length + p.activeTasks.length > 0)
 
     if (actionable.length === 0) {
-      console.log(chalk.yellow('No projects with ready or blocked tasks found.'))
+      const hasBlocked = projects.some(p => p.blockedTasks.length > 0)
+      if (hasBlocked) {
+        console.log(chalk.yellow('No projects with ready tasks. Some have blocked tasks (need manual action).'))
+        console.log(chalk.gray('  Run `aahp list` to see blocked tasks.'))
+      } else {
+        console.log(chalk.yellow('No projects with ready tasks found.'))
+      }
       return
     }
 
@@ -870,7 +877,7 @@ program.action(async () => {
 
   // ── Step 3: scan projects ────────────────────────────────────────────────────
   const projects = scanProjects(rootDir)
-  const actionable = projects.filter(p => p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length > 0)
+  const actionable = projects.filter(p => p.readyTasks.length + p.activeTasks.length > 0)
 
   if (projects.length === 0) {
     console.log(chalk.yellow('\nStep 3 of 3: Add AAHP v3 handoff files to your repos'))
