@@ -58,9 +58,9 @@ program
 
     const actionable = opts.all
       ? projects
-      : projects.filter(p => p.readyTasks.length + p.activeTasks.length > 0)
+      : projects.filter(p => p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length > 0)
 
-    const totalTasks = projects.reduce((n, p) => n + p.readyTasks.length + p.activeTasks.length, 0)
+    const totalTasks = projects.reduce((n, p) => n + p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length, 0)
     const idleCount  = projects.length - actionable.length
 
     if (actionable.length === 0) {
@@ -106,7 +106,7 @@ program
 
     for (const project of actionable) {
       const topTask  = getTopTask(project)
-      const taskCount = project.readyTasks.length + project.activeTasks.length
+      const taskCount = project.readyTasks.length + project.activeTasks.length + project.blockedTasks.length
       const phase    = project.manifest.last_session.phase ?? ''
       const isActive = project.activeTasks.length > 0
 
@@ -173,10 +173,10 @@ program
 
     // No key needed if claude CLI is available (Claude Code VS Code extension)
     const projects = scanProjects(rootDir)
-    const actionable = projects.filter(p => p.readyTasks.length + p.activeTasks.length > 0)
+    const actionable = projects.filter(p => p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length > 0)
 
     if (actionable.length === 0) {
-      console.log(chalk.yellow('No projects with ready tasks found.'))
+      console.log(chalk.yellow('No projects with ready or blocked tasks found.'))
       return
     }
 
@@ -648,7 +648,7 @@ program
         const liveSession = liveMap.get(p.name)
         const isLive = !!liveSession
         const top = getTopTask(p)
-        const taskCount = p.readyTasks.length + p.activeTasks.length
+        const taskCount = p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length
         const phase = p.manifest.last_session.phase ?? ''
 
         const icon = isLive ? ICON['live']! :
@@ -694,7 +694,7 @@ program
       }
 
       console.log(divider('└', '┴', '┘'))
-      const actionableCount = projects.filter(p => p.readyTasks.length + p.activeTasks.length > 0 || liveMap.has(p.name)).length
+      const actionableCount = projects.filter(p => p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length > 0 || liveMap.has(p.name)).length
       console.log(chalk.gray(`\n  ${projects.length} projects scanned · `) + chalk.yellow(String(actionableCount)) + chalk.gray(' with tasks'))
       if (liveCount > 0) {
         console.log(chalk.gray('  aahp logs <repo>      for agent output'))
@@ -870,7 +870,7 @@ program.action(async () => {
 
   // ── Step 3: scan projects ────────────────────────────────────────────────────
   const projects = scanProjects(rootDir)
-  const actionable = projects.filter(p => p.readyTasks.length + p.activeTasks.length > 0)
+  const actionable = projects.filter(p => p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length > 0)
 
   if (projects.length === 0) {
     console.log(chalk.yellow('\nStep 3 of 3: Add AAHP v3 handoff files to your repos'))

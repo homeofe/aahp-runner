@@ -60,6 +60,7 @@ function makeProject(overrides: Partial<AahpProject> = {}): AahpProject {
     manifest: makeManifest(),
     readyTasks: [],
     activeTasks: [],
+    blockedTasks: [],
     ...overrides,
   }
 }

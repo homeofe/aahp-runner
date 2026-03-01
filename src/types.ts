@@ -37,4 +37,5 @@ export interface AahpProject {
   manifest: AahpManifest
   readyTasks: Array<[string, AahpTask]>
   activeTasks: Array<[string, AahpTask]>
+  blockedTasks: Array<[string, AahpTask]>
 }

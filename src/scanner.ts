@@ -241,12 +241,22 @@ export function fetchAndImportGitHubIssues(
     const githubStatus = githubStateToAahpStatus(issue.state, issue.labels)
 
     if (importedIssueNumbers.has(issue.number)) {
-      // Already linked - check if the GitHub issue was closed and task needs status update
+      // Already linked - sync task status with GitHub issue state
       const linkedId = issueNumToTaskId.get(issue.number)
-      if (linkedId && tasks[linkedId] && issue.state === 'closed' && tasks[linkedId]!.status !== 'done') {
-        tasks[linkedId]!.status = 'done'
-        if (!tasks[linkedId]!.completed) tasks[linkedId]!.completed = new Date().toISOString()
-        changed = true
+      if (linkedId && tasks[linkedId]) {
+        const task = tasks[linkedId]!
+        const taskStatus = task.status as string
+        if (issue.state === 'closed' && taskStatus !== 'done') {
+          // Issue closed but task still open - mark done
+          task.status = 'done'
+          if (!task.completed) task.completed = new Date().toISOString()
+          changed = true
+        } else if (issue.state === 'open' && (taskStatus === 'done' || taskStatus === 'completed')) {
+          // Issue still open but task was marked done - restore to ready
+          task.status = githubStatus
+          delete task.completed
+          changed = true
+        }
       }
       continue
     }
@@ -461,6 +471,9 @@ export function scanProjects(rootDir: string): AahpProject[] {
     const activeTasks = Object.entries(tasks).filter(
       ([, t]) => t.status === 'in_progress'
     ) as Array<[string, AahpTask]>
+    const blockedTasks = Object.entries(tasks).filter(
+      ([, t]) => t.status === 'blocked'
+    ) as Array<[string, AahpTask]>
 
     projects.push({
       name: manifest.project || entry.name,
@@ -469,13 +482,14 @@ export function scanProjects(rootDir: string): AahpProject[] {
       manifest,
       readyTasks,
       activeTasks,
+      blockedTasks,
     })
   }
 
   return projects.sort((a, b) => {
-    // Sort: active first, then by number of ready tasks
-    const aScore = a.activeTasks.length * 10 + a.readyTasks.length
-    const bScore = b.activeTasks.length * 10 + b.readyTasks.length
+    // Sort: active first, then by number of ready+blocked tasks
+    const aScore = a.activeTasks.length * 10 + a.readyTasks.length + a.blockedTasks.length
+    const bScore = b.activeTasks.length * 10 + b.readyTasks.length + b.blockedTasks.length
     return bScore - aScore
   })
 }
@@ -503,6 +517,9 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
   const activeTasks = Object.entries(tasks).filter(
     ([, t]) => t.status === 'in_progress'
   ) as Array<[string, AahpTask]>
+  const blockedTasks = Object.entries(tasks).filter(
+    ([, t]) => t.status === 'blocked'
+  ) as Array<[string, AahpTask]>
 
   return {
     name: manifest.project || path.basename(repoPath),
@@ -511,12 +528,14 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
     manifest,
     readyTasks,
     activeTasks,
+    blockedTasks,
   }
 }
 
 export function getTopTask(project: AahpProject): [string, AahpTask] | undefined {
   if (project.activeTasks.length > 0) return project.activeTasks[0]
   if (project.readyTasks.length > 0) return project.readyTasks[0]
+  if (project.blockedTasks.length > 0) return project.blockedTasks[0]
   return undefined
 }
 
