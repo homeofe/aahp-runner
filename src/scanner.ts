@@ -82,6 +82,11 @@ export function fetchAndImportGitHubIssues(
         existingTask.github_repo = repo
         changed = true
       }
+      // A pending task with an open GitHub issue is actionable - promote it to ready
+      if (existingTask.status === 'pending') {
+        existingTask.status = 'ready'
+        changed = true
+      }
       importedIssueNumbers.add(issue.number)
       continue
     }
