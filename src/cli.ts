@@ -58,9 +58,9 @@ program
 
     const actionable = opts.all
       ? projects
-      : projects.filter(p => p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length > 0)
+      : projects.filter(p => p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length + p.cancelledTasks.length > 0)
 
-    const totalTasks = projects.reduce((n, p) => n + p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length, 0)
+    const totalTasks = projects.reduce((n, p) => n + p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length + p.cancelledTasks.length, 0)
     const idleCount  = projects.length - actionable.length
 
     if (actionable.length === 0) {
@@ -70,7 +70,7 @@ program
     }
 
     const ICON: Record<string, string> = {
-      in_progress: '🔄', ready: '⏳', blocked: '🚫', pending: '💤', done: '✅',
+      in_progress: '🔄', ready: '⏳', blocked: '🚫', pending: '💤', done: '✅', cancelled: '🚫',
     }
     const PRI_COLOR: Record<string, (s: string) => string> = {
       high: (s) => chalk.red(s), medium: (s) => chalk.yellow(s), low: (s) => chalk.gray(s),
@@ -106,7 +106,7 @@ program
 
     for (const project of actionable) {
       const topTask  = getTopTask(project)
-      const taskCount = project.readyTasks.length + project.activeTasks.length + project.blockedTasks.length
+      const taskCount = project.readyTasks.length + project.activeTasks.length + project.blockedTasks.length + project.cancelledTasks.length
       const phase    = project.manifest.last_session.phase ?? ''
       const isActive = project.activeTasks.length > 0
 
@@ -655,7 +655,7 @@ program
         const liveSession = liveMap.get(p.name)
         const isLive = !!liveSession
         const top = getTopTask(p)
-        const taskCount = p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length
+        const taskCount = p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length + p.cancelledTasks.length
         const phase = p.manifest.last_session.phase ?? ''
 
         const icon = isLive ? ICON['live']! :
@@ -701,7 +701,7 @@ program
       }
 
       console.log(divider('└', '┴', '┘'))
-      const actionableCount = projects.filter(p => p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length > 0 || liveMap.has(p.name)).length
+      const actionableCount = projects.filter(p => p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length + p.cancelledTasks.length > 0 || liveMap.has(p.name)).length
       console.log(chalk.gray(`\n  ${projects.length} projects scanned · `) + chalk.yellow(String(actionableCount)) + chalk.gray(' with tasks'))
       if (liveCount > 0) {
         console.log(chalk.gray('  aahp logs <repo>      for agent output'))

@@ -35,15 +35,19 @@ function labelsToPriority(labels: Array<{ name: string }>): AahpTask['priority']
 }
 
 /** Map GitHub issue state + labels to an AAHP task status.
- *  closed             → done
+ *  closed (not_planned)   → cancelled
+ *  closed (other)         → done
  *  open + wip/in-progress label → in_progress
  *  open + blocked/on-hold label → blocked
- *  open (default)     → ready */
+ *  open (default)         → ready */
 function githubStateToAahpStatus(
   state: string,
-  labels: Array<{ name: string }>
+  labels: Array<{ name: string }>,
+  stateReason?: string | null
 ): AahpTask['status'] {
-  if (state === 'closed') return 'done'
+  if (state === 'closed') {
+    return stateReason === 'not_planned' ? 'cancelled' : 'done'
+  }
   const names = labels.map(l => l.name.toLowerCase())
   if (names.some(n => n.includes('in progress') || n.includes('in-progress') || n.includes('wip'))) return 'in_progress'
   if (names.some(n => n.includes('blocked') || n.includes('on hold') || n.includes('on-hold'))) return 'blocked'
@@ -238,7 +242,7 @@ export function fetchAndImportGitHubIssues(
   )
 
   for (const issue of issues) {
-    const githubStatus = githubStateToAahpStatus(issue.state, issue.labels)
+    const githubStatus = githubStateToAahpStatus(issue.state, issue.labels, issue.stateReason)
 
     if (importedIssueNumbers.has(issue.number)) {
       // Already linked - sync task status with GitHub issue state
@@ -246,13 +250,13 @@ export function fetchAndImportGitHubIssues(
       if (linkedId && tasks[linkedId]) {
         const task = tasks[linkedId]!
         const taskStatus = task.status as string
-        if (issue.state === 'closed' && taskStatus !== 'done') {
-          // Issue closed but task still open - mark done
-          task.status = 'done'
+        if (issue.state === 'closed' && taskStatus !== 'done' && taskStatus !== 'cancelled') {
+          // Issue closed - mark done or cancelled depending on stateReason
+          task.status = githubStatus  // 'done' or 'cancelled'
           if (!task.completed) task.completed = new Date().toISOString()
           changed = true
-        } else if (issue.state === 'open' && (taskStatus === 'done' || taskStatus === 'completed')) {
-          // Issue still open but task was marked done - restore to ready
+        } else if (issue.state === 'open' && (taskStatus === 'done' || taskStatus === 'completed' || taskStatus === 'cancelled')) {
+          // Issue re-opened but task was marked done/cancelled - restore to ready
           task.status = githubStatus
           delete task.completed
           changed = true
@@ -474,6 +478,9 @@ export function scanProjects(rootDir: string): AahpProject[] {
     const blockedTasks = Object.entries(tasks).filter(
       ([, t]) => t.status === 'blocked'
     ) as Array<[string, AahpTask]>
+    const cancelledTasks = Object.entries(tasks).filter(
+      ([, t]) => t.status === 'cancelled'
+    ) as Array<[string, AahpTask]>
 
     projects.push({
       name: manifest.project || entry.name,
@@ -483,6 +490,7 @@ export function scanProjects(rootDir: string): AahpProject[] {
       readyTasks,
       activeTasks,
       blockedTasks,
+      cancelledTasks,
     })
   }
 
@@ -520,6 +528,9 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
   const blockedTasks = Object.entries(tasks).filter(
     ([, t]) => t.status === 'blocked'
   ) as Array<[string, AahpTask]>
+  const cancelledTasks = Object.entries(tasks).filter(
+    ([, t]) => t.status === 'cancelled'
+  ) as Array<[string, AahpTask]>
 
   return {
     name: manifest.project || path.basename(repoPath),
@@ -529,6 +540,7 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
     readyTasks,
     activeTasks,
     blockedTasks,
+    cancelledTasks,
   }
 }
 

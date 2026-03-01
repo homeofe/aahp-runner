@@ -1,7 +1,7 @@
 // AAHP v3 types shared across the runner
 export interface AahpTask {
   title: string
-  status: 'ready' | 'in_progress' | 'done' | 'blocked' | 'pending'
+  status: 'ready' | 'in_progress' | 'done' | 'blocked' | 'pending' | 'cancelled'
   priority: 'high' | 'medium' | 'low'
   depends_on: string[]
   created: string
@@ -38,4 +38,5 @@ export interface AahpProject {
   readyTasks: Array<[string, AahpTask]>
   activeTasks: Array<[string, AahpTask]>
   blockedTasks: Array<[string, AahpTask]>
+  cancelledTasks: Array<[string, AahpTask]>
 }

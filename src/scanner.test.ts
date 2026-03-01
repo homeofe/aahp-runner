@@ -61,6 +61,7 @@ function makeProject(overrides: Partial<AahpProject> = {}): AahpProject {
     readyTasks: [],
     activeTasks: [],
     blockedTasks: [],
+    cancelledTasks: [],
     ...overrides,
   }
 }
