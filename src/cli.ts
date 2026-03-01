@@ -226,6 +226,9 @@ program
       const board = new StatusBoard(statuses)
       board.start()
 
+      // Tick every second so the elapsed timer updates even between agent callbacks
+      const ticker = setInterval(() => board.refresh(), 1000)
+
       const results = await runWithLimit(targets, maxConcurrent, async project => {
         const topTask = getTopTask(project)
         if (!topTask) return undefined
@@ -319,6 +322,7 @@ program
         }
       })
 
+      clearInterval(ticker)
       board.finish()
 
       // Send alerts for failed agents
@@ -592,36 +596,110 @@ program
     const print = (): void => {
       const live = readLiveSessions()
       const projects = scanProjects(rootDir)
-      const liveNames = new Set(live.map(s => s.repoName ?? path.basename(s.repoPath)))
+      const liveMap = new Map(live.map(s => [s.repoName ?? path.basename(s.repoPath), s]))
 
-      // ── Live running agents section ─────────────────────────────────────────
-      if (live.length > 0) {
-        console.log(chalk.bold.cyan(`\n🔄 Running agents (${live.length})\n`))
-        for (const s of live) {
-          const name = (s.repoName ?? path.basename(s.repoPath)).padEnd(28)
-          const task = chalk.yellow(`[${s.taskId ?? '?'}] ${(s.taskTitle ?? '').slice(0, 40)}`)
-          const backend = chalk.gray(`(${s.backend ?? 'auto'})`)
-          const elapsed = s.startedAt
-            ? chalk.gray(Math.floor((Date.now() - new Date(s.startedAt).getTime()) / 1000) + 's')
-            : ''
-          const lastLine = getLastLogLine(s.repoName ?? path.basename(s.repoPath))
-          const hint = lastLine ? chalk.gray(' · ' + lastLine) : ''
-          console.log(`  ${chalk.cyan('🔄')} ${chalk.white(name)} ${task} ${elapsed} ${backend}${hint}`)
-        }
-      } else {
-        console.log(chalk.gray('\n  No agents currently running'))
-        console.log(chalk.gray('  Start with: aahp run --all --yes\n'))
+      const now = new Date()
+      const clock = now.toLocaleTimeString('en-GB', { hour12: false })
+      const liveCount = live.length
+
+      const ICON: Record<string, string> = {
+        live: chalk.cyan('🔄'), ready: chalk.gray('⏳'), done: chalk.green('✅'), blocked: chalk.red('🚫'),
       }
 
-      // ── Static MANIFEST overview ────────────────────────────────────────────
-      console.log(chalk.bold(`\n📋 Project overview — ${rootDir}\n`))
+      // Column widths - match aahp list style
+      const termWidth = process.stdout.columns || 100
+      const W_NAME  = Math.min(26, Math.max(12, ...projects.map(p => p.name.length)))
+      const W_PHASE = Math.min(14, Math.max(5,  ...projects.map(p => (p.manifest.last_session.phase ?? '').length)))
+      const W_CNT   = 5
+      // Icon col fixed at 4 visible (space + emoji(2) + space), borders add 13 more
+      const W_ACT   = Math.max(20, termWidth - W_NAME - W_PHASE - W_CNT - 4 - 13)
+
+      const trunc = (s: string, n: number) => s.length > n ? s.slice(0, n - 1) + '…' : s
+      const cell  = (s: string, w: number) => trunc(s, w).padEnd(w)
+
+      const divider = (l: string, m: string, r: string) =>
+        chalk.gray(
+          l + '─'.repeat(4) +
+          m + '─'.repeat(W_NAME + 2) +
+          m + '─'.repeat(W_PHASE + 2) +
+          m + '─'.repeat(W_CNT + 2) +
+          m + '─'.repeat(W_ACT + 2) + r
+        )
+
+      const titleLine = [
+        chalk.bold('📋 AAHP Status'),
+        chalk.gray(clock),
+        liveCount > 0 ? chalk.cyan(`${liveCount} live`) : '',
+        chalk.gray(`${projects.length} projects`),
+      ].filter(Boolean).join(chalk.gray(' · '))
+
+      console.log('\n' + titleLine)
+      console.log(divider('┌', '┬', '┐'))
+      console.log(
+        chalk.gray('│ ') + '  ' + chalk.gray(' │ ') +
+        chalk.bold(cell('Project', W_NAME)) + chalk.gray(' │ ') +
+        chalk.bold(cell('Phase', W_PHASE)) + chalk.gray(' │ ') +
+        chalk.bold(cell('Tasks', W_CNT)) + chalk.gray(' │ ') +
+        chalk.bold(cell('Activity', W_ACT)) + chalk.gray(' │')
+      )
+      console.log(divider('├', '┼', '┤'))
+
       for (const p of projects) {
+        const liveSession = liveMap.get(p.name)
+        const isLive = !!liveSession
         const top = getTopTask(p)
-        const isLive = liveNames.has(p.name)
-        const phase = chalk.cyan(p.manifest.last_session.phase)
-        const taskLine = top ? chalk.yellow(`[${top[0]}] ${top[1].title}`) : chalk.gray('all done')
-        const indicator = isLive ? chalk.cyan(' 🔄') : '   '
-        console.log(`${indicator} ${chalk.bold(p.name.padEnd(28))} ${phase.padEnd(20)} ${taskLine}`)
+        const taskCount = p.readyTasks.length + p.activeTasks.length
+        const phase = p.manifest.last_session.phase ?? ''
+
+        const icon = isLive ? ICON['live']! :
+          taskCount > 0 ? ICON['ready']! :
+          ICON['done']!
+
+        // Activity column: for live show elapsed + task + last log; for ready show top task
+        let actText = ''
+        if (isLive && liveSession) {
+          const elapsedMs = liveSession.startedAt
+            ? now.getTime() - new Date(liveSession.startedAt).getTime() : 0
+          const sec = Math.floor(elapsedMs / 1000)
+          const elapsedStr = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m${sec % 60}s`
+          const logLine = getLastLogLine(p.name)
+          actText = [elapsedStr, liveSession.taskId ? `[${liveSession.taskId}]` : '', logLine]
+            .filter(Boolean).join(' · ')
+        } else if (top) {
+          const [id, task] = top
+          const gh = task.github_issue ? ` #${task.github_issue}` : ''
+          actText = `${id} ${task.title}${gh}`
+        } else {
+          actText = 'all done'
+        }
+
+        const nameCell  = cell(p.name, W_NAME)
+        const phaseCell = cell(phase, W_PHASE)
+        const cntCell   = cell(taskCount > 0 ? String(taskCount) : '-', W_CNT)
+        const actCell   = cell(actText, W_ACT)
+
+        const nameColored  = isLive ? chalk.white.bold(nameCell) : chalk.white(nameCell)
+        const phaseColored = chalk.cyan(phaseCell)
+        const cntColored   = taskCount > 0 ? chalk.yellow(cntCell) : chalk.gray(cntCell)
+        const actColored   = isLive ? chalk.gray(actCell) :
+          taskCount > 0 ? chalk.white(actCell) : chalk.gray(actCell)
+
+        console.log(
+          chalk.gray('│ ') + icon + chalk.gray(' │ ') + nameColored +
+          chalk.gray(' │ ') + phaseColored +
+          chalk.gray(' │ ') + cntColored +
+          chalk.gray(' │ ') + actColored +
+          chalk.gray(' │')
+        )
+      }
+
+      console.log(divider('└', '┴', '┘'))
+      const actionableCount = projects.filter(p => p.readyTasks.length + p.activeTasks.length > 0 || liveMap.has(p.name)).length
+      console.log(chalk.gray(`\n  ${projects.length} projects scanned · `) + chalk.yellow(String(actionableCount)) + chalk.gray(' with tasks'))
+      if (liveCount > 0) {
+        console.log(chalk.gray('  aahp logs <repo>      for agent output'))
+      } else if (actionableCount > 0) {
+        console.log(chalk.gray('  aahp run --all --yes  to start agents'))
       }
       console.log()
     }

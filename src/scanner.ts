@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { execSync } from 'child_process'
+import os from 'os'
+import { execSync, spawnSync } from 'child_process'
 import type { AahpManifest, AahpProject, AahpTask } from './types.js'
 
 interface GitHubIssue {
@@ -52,6 +53,101 @@ function githubStateToAahpStatus(
 function extractTaskIdFromIssueTitle(title: string): string | undefined {
   const match = title.match(/\b(T-\d{3,})\b/i)
   return match?.[1]?.toUpperCase()
+}
+
+// Labels applied to GitHub issues created from AAHP tasks
+const PRIORITY_LABELS: Record<string, { name: string; color: string }> = {
+  high:   { name: 'priority: high',   color: 'd93f0b' },
+  medium: { name: 'priority: medium', color: 'fbca04' },
+  low:    { name: 'priority: low',    color: '0075ca' },
+}
+const STATUS_LABELS: Record<string, { name: string; color: string }> = {
+  blocked:     { name: 'blocked',      color: 'e4e669' },
+  in_progress: { name: 'in progress',  color: '0052cc' },
+}
+
+/** Create a GitHub label if it doesn't exist yet (--force updates existing). */
+function ensureLabel(repo: string, name: string, color: string, cwd: string): void {
+  try {
+    execSync(`gh label create "${name}" --color "${color}" --force --repo ${repo}`,
+      { cwd, stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 })
+  } catch { /* best-effort */ }
+}
+
+/** For every actionable task that has no GitHub issue, create one and link it back.
+ *  Writes MANIFEST.json if any issues were created. Returns updated manifest. */
+export function createMissingGitHubIssues(
+  repoPath: string,
+  handoffDir: string,
+  manifest: AahpManifest
+): AahpManifest {
+  const repo = detectGitHubRepo(repoPath)
+  if (!repo) return manifest
+
+  const tasks = manifest.tasks ?? {}
+  const toCreate = Object.entries(tasks).filter(
+    ([, t]) => t.github_issue === undefined &&
+      (t.status === 'ready' || t.status === 'in_progress' || t.status === 'blocked')
+  ) as Array<[string, AahpTask]>
+
+  if (toCreate.length === 0) return manifest
+
+  // Ensure all needed labels exist before creating issues
+  const labelsNeeded = new Set(toCreate.flatMap(([, t]) => [t.priority, t.status]))
+  for (const key of labelsNeeded) {
+    const lbl = PRIORITY_LABELS[key] ?? STATUS_LABELS[key]
+    if (lbl) ensureLabel(repo, lbl.name, lbl.color, repoPath)
+  }
+
+  let changed = false
+  for (const [taskId, task] of toCreate) {
+    const title = `[${taskId}] ${task.title}`
+    const labelArgs = [
+      ...(PRIORITY_LABELS[task.priority] ? ['--label', PRIORITY_LABELS[task.priority]!.name] : []),
+      ...(STATUS_LABELS[task.status]     ? ['--label', STATUS_LABELS[task.status]!.name]     : []),
+    ]
+    const body = [
+      `**AAHP Task:** \`${taskId}\`  `,
+      `**Status:** ${task.status}  `,
+      `**Priority:** ${task.priority}  `,
+      task.depends_on?.length ? `**Depends on:** ${task.depends_on.join(', ')}  ` : '',
+      '',
+      task.notes ?? '',
+      '',
+      `---`,
+      `*Auto-created from AAHP manifest · project: ${manifest.project}*`,
+    ].filter(l => l !== undefined).join('\n').trim()
+
+    // Write body to a temp file to avoid shell-escaping issues cross-platform
+    const tmpFile = path.join(os.tmpdir(), `aahp-issue-${taskId}-${Date.now()}.md`)
+    try {
+      fs.writeFileSync(tmpFile, body, 'utf8')
+      const result = spawnSync('gh', [
+        'issue', 'create',
+        '--repo', repo,
+        '--title', title,
+        '--body-file', tmpFile,
+        ...labelArgs,
+      ], { cwd: repoPath, timeout: 15000, encoding: 'utf8' })
+
+      if (result.status === 0 && result.stdout) {
+        // gh outputs the issue URL: https://github.com/owner/repo/issues/42
+        const numMatch = result.stdout.trim().match(/\/issues\/(\d+)$/)
+        if (numMatch?.[1]) {
+          task.github_issue = parseInt(numMatch[1], 10)
+          task.github_repo = repo
+          changed = true
+        }
+      }
+    } catch { /* best-effort */ } finally {
+      try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
+    }
+  }
+
+  if (!changed) return manifest
+  const updated: AahpManifest = { ...manifest, tasks }
+  fs.writeFileSync(path.join(handoffDir, 'MANIFEST.json'), JSON.stringify(updated, null, 2) + '\n', 'utf8')
+  return updated
 }
 
 /** Fetch GitHub issues (all states) and sync them into the manifest as AAHP tasks.
@@ -173,8 +269,9 @@ export function scanProjects(rootDir: string): AahpProject[] {
       continue
     }
 
-    // Fetch open GitHub issues and import any new ones as ready tasks
+    // Sync GitHub issues → MANIFEST, then push unlinked tasks → GitHub
     manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest)
+    manifest = createMissingGitHubIssues(repoPath, handoffDir, manifest)
 
     const tasks = manifest.tasks ?? {}
     const readyTasks = Object.entries(tasks).filter(
@@ -215,6 +312,7 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
   }
 
   manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest)
+  manifest = createMissingGitHubIssues(repoPath, handoffDir, manifest)
 
   const tasks = manifest.tasks ?? {}
   const readyTasks = Object.entries(tasks).filter(

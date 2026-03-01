@@ -138,12 +138,14 @@ export class StatusBoard {
 
     const lines: string[] = []
 
-    // Header summary
+    // Header summary (with live clock)
+    const now = new Date().toLocaleTimeString('en-GB', { hour12: false })
     const summary = [
       chalk.bold('🤖 AAHP'),
       chalk.green(`${done}/${total} done`),
       running > 0 ? chalk.cyan(`${running} running`) : '',
       failed  > 0 ? chalk.red(`${failed} failed`)    : '',
+      chalk.gray(now),
     ].filter(Boolean).join(chalk.gray(' · '))
     lines.push(summary)
     lines.push(divider('┌', '┬', '┐'))
@@ -151,21 +153,20 @@ export class StatusBoard {
     for (const s of this._agents) {
       const icon = STATUS_ICON[s.state]   // 2-wide emoji
 
-      // Hint: ETA → turn counter → last log line
-      let hintText = ''
+      // Hint: combine ETA + turn progress + last log line (all visible when available)
+      const hintParts: string[] = []
       if (s.state === 'running' && s.estimatedEndAt) {
         const rem = s.estimatedEndAt.getTime() - Date.now()
         if (rem > 0) {
           const remSec = Math.floor(rem / 1000)
-          hintText = `~${remSec < 60 ? remSec + 's' : Math.ceil(remSec / 60) + 'm'} left`
+          hintParts.push(`~${remSec < 60 ? remSec + 's' : Math.ceil(remSec / 60) + 'm'} left`)
         }
       }
-      if (!hintText && s.state === 'running' && s.currentTurn && s.maxTurns) {
-        hintText = `turn ${s.currentTurn}/${s.maxTurns}`
+      if (s.state === 'running' && s.currentTurn && s.maxTurns) {
+        hintParts.push(`t${s.currentTurn}/${s.maxTurns}`)
       }
-      if (!hintText && s.lastLine) {
-        hintText = s.lastLine.replace(/\s+/g, ' ')
-      }
+      if (s.lastLine) hintParts.push(s.lastLine.replace(/\s+/g, ' '))
+      const hintText = hintParts.join(' · ')
 
       const nameStr = trunc(s.repo, W_NAME)
       const taskStr = trunc(s.taskId, W_TASK)
