@@ -31,6 +31,11 @@ function labelsToPriority(labels: Array<{ name: string }>): AahpTask['priority']
   return 'low'
 }
 
+function extractTaskIdFromIssueTitle(title: string): string | undefined {
+  const match = title.match(/\b(T-\d{3,})\b/i)
+  return match?.[1]?.toUpperCase()
+}
+
 /** Fetch open GitHub issues and import any new ones as ready tasks into the manifest.
  *  Returns the (possibly updated) manifest. Writes to disk if new tasks were added. */
 export function fetchAndImportGitHubIssues(
@@ -68,6 +73,18 @@ export function fetchAndImportGitHubIssues(
 
   for (const issue of issues) {
     if (importedIssueNumbers.has(issue.number)) continue
+
+    const existingTaskId = extractTaskIdFromIssueTitle(issue.title)
+    if (existingTaskId && tasks[existingTaskId]) {
+      const existingTask = tasks[existingTaskId]!
+      if (existingTask.github_issue !== issue.number || existingTask.github_repo !== repo) {
+        existingTask.github_issue = issue.number
+        existingTask.github_repo = repo
+        changed = true
+      }
+      importedIssueNumbers.add(issue.number)
+      continue
+    }
 
     const taskId = `T-${String(nextId).padStart(3, '0')}`
     tasks[taskId] = {
