@@ -738,7 +738,7 @@ program.action(async () => {
     console.log(chalk.gray('  No repos with .ai/handoff/MANIFEST.json found in:'))
     console.log(chalk.gray(`  ${rootDir}`))
     console.log()
-    console.log(chalk.white('  See:') + chalk.cyan('  https://github.com/elvatis/AAHP'))
+    console.log(chalk.white('  See:') + chalk.cyan('  https://github.com/homeofe/AAHP'))
     console.log()
     return
   }

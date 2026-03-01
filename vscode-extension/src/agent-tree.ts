@@ -203,7 +203,7 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<AgentItem> {
       setup.command = {
         command: 'vscode.open',
         title: 'Open AAHP docs',
-        arguments: [vscode.Uri.parse('https://github.com/elvatis/AAHP')],
+        arguments: [vscode.Uri.parse('https://github.com/homeofe/AAHP')],
       }
       items.push(setup)
     }
