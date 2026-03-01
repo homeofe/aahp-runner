@@ -160,7 +160,7 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<AgentItem> {
               taskItem.contextValue = 'readyTask'
               // Click to fix with Claude
               taskItem.command = {
-                command: 'aahp.fixTask',
+                command: 'aahpDashboard.fixTask',
                 title: 'Fix with Claude',
                 arguments: [p.repoPath, id, task.title],
               }

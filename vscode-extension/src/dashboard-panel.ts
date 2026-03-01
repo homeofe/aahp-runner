@@ -47,28 +47,28 @@ export class DashboardPanel {
   private static _handleMessage(msg: { command: string; [key: string]: string }) {
     switch (msg.command) {
       case 'fixTask':
-        vscode.commands.executeCommand('aahp.fixTask', msg.projectPath, msg.taskId, msg.taskTitle)
+        vscode.commands.executeCommand('aahpDashboard.fixTask', msg.projectPath, msg.taskId, msg.taskTitle)
         break
       case 'fixProjectTasks':
         DashboardPanel._fixProjectTasks(msg.projectPath)
         break
       case 'fixAllTasks':
-        vscode.commands.executeCommand('aahp.fixAllTasks')
+        vscode.commands.executeCommand('aahpDashboard.fixAllTasks')
         break
       case 'runProject':
-        vscode.commands.executeCommand('aahp.runProject', msg.projectPath, msg.projectName)
+        vscode.commands.executeCommand('aahpDashboard.runProject', msg.projectPath, msg.projectName)
         break
       case 'openFolder':
-        vscode.commands.executeCommand('aahp.openProjectFolder', msg.projectPath)
+        vscode.commands.executeCommand('aahpDashboard.openProjectFolder', msg.projectPath)
         break
       case 'openManifest':
-        vscode.commands.executeCommand('aahp.openManifest', msg.manifestPath)
+        vscode.commands.executeCommand('aahpDashboard.openManifest', msg.manifestPath)
         break
       case 'viewLogs':
-        vscode.commands.executeCommand('aahp.viewLogs', msg.repoName)
+        vscode.commands.executeCommand('aahpDashboard.viewLogs', msg.repoName)
         break
       case 'refresh':
-        vscode.commands.executeCommand('aahp.refreshDashboard')
+        vscode.commands.executeCommand('aahpDashboard.refreshDashboard')
         break
     }
   }
@@ -86,7 +86,7 @@ export class DashboardPanel {
     let count = 0
     for (const [id, task] of Object.entries(tasks)) {
       if (task.status === 'ready') {
-        vscode.commands.executeCommand('aahp.fixTask', projectPath, id, task.title)
+        vscode.commands.executeCommand('aahpDashboard.fixTask', projectPath, id, task.title)
         count++
       }
     }

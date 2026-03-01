@@ -146,6 +146,38 @@ export function scanProjects(rootDir: string): AahpProject[] {
   })
 }
 
+export function scanProjectByPath(repoPath: string): AahpProject | undefined {
+  const handoffDir = path.join(repoPath, '.ai', 'handoff')
+  const manifestPath = path.join(handoffDir, 'MANIFEST.json')
+  if (!fs.existsSync(manifestPath)) return undefined
+
+  let manifest: AahpManifest
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as AahpManifest
+  } catch {
+    return undefined
+  }
+
+  manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest)
+
+  const tasks = manifest.tasks ?? {}
+  const readyTasks = Object.entries(tasks).filter(
+    ([, t]) => t.status === 'ready'
+  ) as Array<[string, AahpTask]>
+  const activeTasks = Object.entries(tasks).filter(
+    ([, t]) => t.status === 'in_progress'
+  ) as Array<[string, AahpTask]>
+
+  return {
+    name: manifest.project || path.basename(repoPath),
+    repoPath,
+    handoffDir,
+    manifest,
+    readyTasks,
+    activeTasks,
+  }
+}
+
 export function getTopTask(project: AahpProject): [string, AahpTask] | undefined {
   if (project.activeTasks.length > 0) return project.activeTasks[0]
   if (project.readyTasks.length > 0) return project.readyTasks[0]

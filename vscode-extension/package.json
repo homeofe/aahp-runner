@@ -16,104 +16,104 @@
   "contributes": {
     "commands": [
       {
-        "command": "aahp.openDashboard",
+        "command": "aahpDashboard.openDashboard",
         "title": "AAHP: Open Dashboard",
         "icon": "$(dashboard)"
       },
       {
-        "command": "aahp.showMetrics",
+        "command": "aahpDashboard.showMetrics",
         "title": "AAHP: Show Metrics",
         "icon": "$(graph)"
       },
       {
-        "command": "aahp.refreshDashboard",
+        "command": "aahpDashboard.refreshDashboard",
         "title": "AAHP: Refresh Dashboard",
         "icon": "$(refresh)"
       },
       {
-        "command": "aahp.fixTask",
+        "command": "aahpDashboard.fixTask",
         "title": "AAHP: Fix Task with Claude",
         "icon": "$(tools)"
       },
       {
-        "command": "aahp.fixAllTasks",
+        "command": "aahpDashboard.fixAllTasks",
         "title": "AAHP: Fix All Open Tasks",
         "icon": "$(run-all)"
       },
       {
-        "command": "aahp.runProject",
+        "command": "aahpDashboard.runProject",
         "title": "AAHP: Run Agent on Project",
         "icon": "$(play)"
       },
       {
-        "command": "aahp.openProjectFolder",
+        "command": "aahpDashboard.openProjectFolder",
         "title": "AAHP: Open Project Folder",
         "icon": "$(folder-opened)"
       },
       {
-        "command": "aahp.openManifest",
+        "command": "aahpDashboard.openManifest",
         "title": "AAHP: Open MANIFEST.json",
         "icon": "$(json)"
       },
       {
-        "command": "aahp.viewLogs",
+        "command": "aahpDashboard.viewLogs",
         "title": "AAHP: View Project Logs",
         "icon": "$(output)"
       }
     ],
     "keybindings": [
       {
-        "command": "aahp.openDashboard",
+        "command": "aahpDashboard.openDashboard",
         "key": "ctrl+alt+a"
       },
       {
-        "command": "aahp.fixAllTasks",
+        "command": "aahpDashboard.fixAllTasks",
         "key": "ctrl+alt+f"
       },
       {
-        "command": "aahp.refreshDashboard",
+        "command": "aahpDashboard.refreshDashboard",
         "key": "ctrl+alt+r"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "aahp.openDashboard",
+          "command": "aahpDashboard.openDashboard",
           "when": "view == aahp.agents",
           "group": "navigation"
         },
         {
-          "command": "aahp.refreshDashboard",
+          "command": "aahpDashboard.refreshDashboard",
           "when": "view == aahp.agents",
           "group": "navigation"
         },
         {
-          "command": "aahp.fixAllTasks",
+          "command": "aahpDashboard.fixAllTasks",
           "when": "view == aahp.agents",
           "group": "navigation"
         }
       ],
       "view/item/context": [
         {
-          "command": "aahp.fixTask",
+          "command": "aahpDashboard.fixTask",
           "when": "viewItem == readyTask",
           "group": "inline"
         },
         {
-          "command": "aahp.runProject",
+          "command": "aahpDashboard.runProject",
           "when": "viewItem == aahpProject",
           "group": "inline"
         },
         {
-          "command": "aahp.openProjectFolder",
+          "command": "aahpDashboard.openProjectFolder",
           "when": "viewItem == aahpProject"
         },
         {
-          "command": "aahp.openManifest",
+          "command": "aahpDashboard.openManifest",
           "when": "viewItem == aahpProject"
         },
         {
-          "command": "aahp.viewLogs",
+          "command": "aahpDashboard.viewLogs",
           "when": "viewItem == aahpProject"
         }
       ]
@@ -142,7 +142,7 @@
     "viewsWelcome": [
       {
         "view": "aahp.agents",
-        "contents": "Loading AAHP projects...\n[Open Dashboard](command:aahp.openDashboard)\n[Refresh](command:aahp.refreshDashboard)\n[Fix All Open Tasks](command:aahp.fixAllTasks)"
+        "contents": "Loading AAHP projects...\n[Open Dashboard](command:aahpDashboard.openDashboard)\n[Refresh](command:aahpDashboard.refreshDashboard)\n[Fix All Open Tasks](command:aahpDashboard.fixAllTasks)"
       }
     ]
   },

@@ -25,17 +25,17 @@ export function activate(context: vscode.ExtensionContext) {
   // Commands
   context.subscriptions.push(
     // Open main dashboard
-    vscode.commands.registerCommand('aahp.openDashboard', () => {
+    vscode.commands.registerCommand('aahpDashboard.openDashboard', () => {
       DashboardPanel.createOrShow(context.extensionUri)
     }),
 
     // Show metrics tab
-    vscode.commands.registerCommand('aahp.showMetrics', () => {
+    vscode.commands.registerCommand('aahpDashboard.showMetrics', () => {
       DashboardPanel.createOrShow(context.extensionUri, 'metrics')
     }),
 
     // Refresh everything
-    vscode.commands.registerCommand('aahp.refreshDashboard', () => {
+    vscode.commands.registerCommand('aahpDashboard.refreshDashboard', () => {
       agentProvider.refresh()
       metricsProvider.refresh()
       DashboardPanel.refresh()
@@ -43,7 +43,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     // Fix a single task with Claude CLI
-    vscode.commands.registerCommand('aahp.fixTask', (projectPath?: string, taskId?: string, taskTitle?: string) => {
+    vscode.commands.registerCommand('aahpDashboard.fixTask', (projectPath?: string, taskId?: string, taskTitle?: string) => {
       if (!projectPath || !taskId || !taskTitle) {
         vscode.window.showWarningMessage('Missing task information. Use the dashboard to fix tasks.')
         return
@@ -52,12 +52,12 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     // Fix ALL open tasks across all projects
-    vscode.commands.registerCommand('aahp.fixAllTasks', () => {
+    vscode.commands.registerCommand('aahpDashboard.fixAllTasks', () => {
       fixAllOpenTasks()
     }),
 
     // Run aahp-runner agent on a specific project
-    vscode.commands.registerCommand('aahp.runProject', (projectPath?: string, projectName?: string) => {
+    vscode.commands.registerCommand('aahpDashboard.runProject', (projectPath?: string, projectName?: string) => {
       if (!projectPath) {
         vscode.window.showWarningMessage('No project path provided.')
         return
@@ -66,19 +66,19 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     // Open project folder in new window
-    vscode.commands.registerCommand('aahp.openProjectFolder', (projectPath?: string) => {
+    vscode.commands.registerCommand('aahpDashboard.openProjectFolder', (projectPath?: string) => {
       if (!projectPath) return
       vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(projectPath), { forceNewWindow: true })
     }),
 
     // Open MANIFEST.json in editor
-    vscode.commands.registerCommand('aahp.openManifest', (manifestPath?: string) => {
+    vscode.commands.registerCommand('aahpDashboard.openManifest', (manifestPath?: string) => {
       if (!manifestPath) return
       vscode.commands.executeCommand('vscode.open', vscode.Uri.file(manifestPath))
     }),
 
     // View today's log for a project
-    vscode.commands.registerCommand('aahp.viewLogs', (repoName?: string) => {
+    vscode.commands.registerCommand('aahpDashboard.viewLogs', (repoName?: string) => {
       if (!repoName) return
       const stamp = new Date().toISOString().slice(0, 10)
       const logPath = path.join(os.homedir(), '.aahp', 'logs', `${repoName}-${stamp}.log`)
