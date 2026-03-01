@@ -8,6 +8,8 @@ interface GitHubIssue {
   title: string
   body: string
   labels: Array<{ name: string }>
+  state: 'open' | 'closed'
+  stateReason?: 'completed' | 'not_planned' | 'reopened' | null
 }
 
 /** Detect owner/repo from git remote origin URL */
@@ -31,13 +33,31 @@ function labelsToPriority(labels: Array<{ name: string }>): AahpTask['priority']
   return 'low'
 }
 
+/** Map GitHub issue state + labels to an AAHP task status.
+ *  closed             → done
+ *  open + wip/in-progress label → in_progress
+ *  open + blocked/on-hold label → blocked
+ *  open (default)     → ready */
+function githubStateToAahpStatus(
+  state: string,
+  labels: Array<{ name: string }>
+): AahpTask['status'] {
+  if (state === 'closed') return 'done'
+  const names = labels.map(l => l.name.toLowerCase())
+  if (names.some(n => n.includes('in progress') || n.includes('in-progress') || n.includes('wip'))) return 'in_progress'
+  if (names.some(n => n.includes('blocked') || n.includes('on hold') || n.includes('on-hold'))) return 'blocked'
+  return 'ready'
+}
+
 function extractTaskIdFromIssueTitle(title: string): string | undefined {
   const match = title.match(/\b(T-\d{3,})\b/i)
   return match?.[1]?.toUpperCase()
 }
 
-/** Fetch open GitHub issues and import any new ones as ready tasks into the manifest.
- *  Returns the (possibly updated) manifest. Writes to disk if new tasks were added. */
+/** Fetch GitHub issues (all states) and sync them into the manifest as AAHP tasks.
+ *  - open issue  → creates or updates task, status derived from labels
+ *  - closed issue → marks linked task as done
+ *  Returns the (possibly updated) manifest. Writes to disk if anything changed. */
 export function fetchAndImportGitHubIssues(
   repoPath: string,
   handoffDir: string,
@@ -49,7 +69,7 @@ export function fetchAndImportGitHubIssues(
   let issues: GitHubIssue[]
   try {
     const output = execSync(
-      `gh issue list --repo ${repo} --state open --json number,title,body,labels --limit 50`,
+      `gh issue list --repo ${repo} --state all --json number,title,body,labels,state,stateReason --limit 100`,
       { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 }
     ).toString()
     issues = JSON.parse(output) as GitHubIssue[]
@@ -74,27 +94,41 @@ export function fetchAndImportGitHubIssues(
   for (const issue of issues) {
     if (importedIssueNumbers.has(issue.number)) continue
 
+    const githubStatus = githubStateToAahpStatus(issue.state, issue.labels)
+
     const existingTaskId = extractTaskIdFromIssueTitle(issue.title)
     if (existingTaskId && tasks[existingTaskId]) {
       const existingTask = tasks[existingTaskId]!
+      let taskChanged = false
+
       if (existingTask.github_issue !== issue.number || existingTask.github_repo !== repo) {
         existingTask.github_issue = issue.number
         existingTask.github_repo = repo
-        changed = true
+        taskChanged = true
       }
-      // A pending task with an open GitHub issue is actionable - promote it to ready
-      if (existingTask.status === 'pending') {
-        existingTask.status = 'ready'
-        changed = true
+
+      // Sync status from GitHub:
+      // - closed issue always wins (mark done)
+      // - open issue updates status unless the agent is actively working (in_progress)
+      const shouldSyncStatus =
+        githubStatus === 'done' || existingTask.status !== 'in_progress'
+      if (shouldSyncStatus && existingTask.status !== githubStatus) {
+        existingTask.status = githubStatus
+        taskChanged = true
       }
+
+      if (taskChanged) changed = true
       importedIssueNumbers.add(issue.number)
       continue
     }
 
+    // Don't create new tasks for already-closed issues with no matching T-xxx task
+    if (issue.state === 'closed') continue
+
     const taskId = `T-${String(nextId).padStart(3, '0')}`
     tasks[taskId] = {
       title: issue.title,
-      status: 'ready',
+      status: githubStatus,
       priority: labelsToPriority(issue.labels),
       depends_on: [],
       created: new Date().toISOString(),
