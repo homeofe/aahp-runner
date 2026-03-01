@@ -55,6 +55,28 @@ function extractTaskIdFromIssueTitle(title: string): string | undefined {
   return match?.[1]?.toUpperCase()
 }
 
+/** Normalize a task/issue title for fuzzy matching: lowercase, strip T-NNN prefix,
+ *  strip "(issue #N)" annotations, collapse non-alphanumeric runs to spaces. */
+function normalizeTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/^\[T-\d+\]\s*/i, '')
+    .replace(/\(issue #\d+\)/gi, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Safely extract issue number from a github_issue value that may be a legacy URL string. */
+function extractIssueNumber(raw: unknown): number | undefined {
+  if (typeof raw === 'number' && raw > 0) return raw
+  if (typeof raw === 'string' && raw) {
+    const m = raw.match(/\/issues\/(\d+)$/)
+    if (m?.[1]) return parseInt(m[1], 10)
+  }
+  return undefined
+}
+
 // Labels applied to GitHub issues created from AAHP tasks
 const PRIORITY_LABELS: Record<string, { name: string; color: string }> = {
   high:   { name: 'priority: high',   color: 'd93f0b' },
@@ -86,7 +108,7 @@ export function createMissingGitHubIssues(
 
   const tasks = manifest.tasks ?? {}
   const toCreate = Object.entries(tasks).filter(
-    ([, t]) => t.github_issue === undefined &&
+    ([, t]) => !t.github_issue &&
       (t.status === 'ready' || t.status === 'in_progress' || t.status === 'blocked')
   ) as Array<[string, AahpTask]>
 
@@ -180,11 +202,32 @@ export function fetchAndImportGitHubIssues(
   let nextId = manifest.next_task_id ?? (Object.keys(tasks).length + 1)
   let changed = false
 
+  // Migration: normalize any legacy string URL github_issue values to plain numbers
+  for (const task of Object.values(tasks)) {
+    if (typeof (task.github_issue as unknown) === 'string') {
+      const num = extractIssueNumber(task.github_issue)
+      if (num !== undefined) {
+        task.github_issue = num
+        changed = true
+      } else {
+        delete task.github_issue
+        changed = true
+      }
+    }
+  }
+
   // Build a set of already-imported issue numbers
   const importedIssueNumbers = new Set(
     Object.values(tasks)
       .map(t => t.github_issue)
-      .filter((n): n is number => n !== undefined)
+      .filter((n): n is number => typeof n === 'number')
+  )
+
+  // Build a normalized-title → taskId lookup for title-based fallback matching
+  const titleToTaskId = new Map(
+    Object.entries(tasks)
+      .filter(([, t]) => !t.github_issue)
+      .map(([id, t]) => [normalizeTitle(t.title), id])
   )
 
   for (const issue of issues) {
@@ -192,6 +235,7 @@ export function fetchAndImportGitHubIssues(
 
     const githubStatus = githubStateToAahpStatus(issue.state, issue.labels)
 
+    // 1. Match by T-NNN embedded in the issue title
     const existingTaskId = extractTaskIdFromIssueTitle(issue.title)
     if (existingTaskId && tasks[existingTaskId]) {
       const existingTask = tasks[existingTaskId]!
@@ -203,11 +247,7 @@ export function fetchAndImportGitHubIssues(
         taskChanged = true
       }
 
-      // Sync status from GitHub:
-      // - closed issue always wins (mark done)
-      // - open issue updates status unless the agent is actively working (in_progress)
-      const shouldSyncStatus =
-        githubStatus === 'done' || existingTask.status !== 'in_progress'
+      const shouldSyncStatus = githubStatus === 'done' || existingTask.status !== 'in_progress'
       if (shouldSyncStatus && existingTask.status !== githubStatus) {
         existingTask.status = githubStatus
         taskChanged = true
@@ -218,8 +258,20 @@ export function fetchAndImportGitHubIssues(
       continue
     }
 
-    // Don't create new tasks for already-closed issues with no matching T-xxx task
-    if (issue.state === 'closed') continue
+    // 2. Fallback: match by normalized title (handles old manually-created issues)
+    const normalizedIssueTitle = normalizeTitle(issue.title)
+    const titleMatchId = titleToTaskId.get(normalizedIssueTitle)
+    if (titleMatchId && tasks[titleMatchId]) {
+      const existingTask = tasks[titleMatchId]!
+      existingTask.github_issue = issue.number
+      existingTask.github_repo = repo
+      const shouldSyncStatus = githubStatus === 'done' || existingTask.status !== 'in_progress'
+      if (shouldSyncStatus && existingTask.status !== githubStatus) existingTask.status = githubStatus
+      titleToTaskId.delete(normalizedIssueTitle)
+      importedIssueNumbers.add(issue.number)
+      changed = true
+      continue
+    }
 
     const taskId = `T-${String(nextId).padStart(3, '0')}`
     tasks[taskId] = {
