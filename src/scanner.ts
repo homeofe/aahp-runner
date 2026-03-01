@@ -190,7 +190,7 @@ export function fetchAndImportGitHubIssues(
       `gh issue list --repo ${repo} --state all --json number,title,body,labels,state,stateReason --limit 100`,
       { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 }
     ).toString()
-    issues = JSON.parse(output) as GitHubIssue[]
+    issues = (JSON.parse(output) as GitHubIssue[]).map(i => ({ ...i, state: i.state.toLowerCase() as 'open' | 'closed' }))
   } catch {
     // gh not installed, not authenticated, or no GitHub remote - skip silently
     return manifest
@@ -250,6 +250,9 @@ export function fetchAndImportGitHubIssues(
       }
       continue
     }
+
+    // Don't create new MANIFEST tasks from already-closed GitHub issues.
+    if (issue.state === 'closed') continue
 
     // 1. Match by T-NNN embedded in the issue title
     const existingTaskId = extractTaskIdFromIssueTitle(issue.title)
