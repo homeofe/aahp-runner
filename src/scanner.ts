@@ -296,6 +296,105 @@ export function fetchAndImportGitHubIssues(
   return updated
 }
 
+/** Parse a NEXT_ACTIONS.md file and extract actionable task items.
+ *  Returns items as { section, taskId?, title, priority? } - minimal subset needed here. */
+function parseNextActionsBasic(markdown: string): Array<{ section: string; taskId?: string; title: string; priority?: string }> {
+  const items: Array<{ section: string; taskId?: string; title: string; priority?: string }> = []
+  let section = 'unknown'
+
+  for (const line of markdown.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+
+    // Section headings
+    const heading = trimmed.match(/^#{1,3}\s+(.+)/)
+    if (heading && heading[1]) {
+      const h = heading[1].toLowerCase().replace(/[^\x20-\x7E]/g, '').trim()
+      if (/ready|work these next|next step|open task/i.test(h)) section = 'ready'
+      else if (/in.?progress|active|running|current/i.test(h)) section = 'in_progress'
+      else if (/blocked|cannot start/i.test(h)) section = 'blocked'
+      else if (/done|completed|recently completed/i.test(h)) section = 'done'
+
+      // Heading-style task: ### T-016: title
+      const taskH = trimmed.match(/^#{2,3}\s+(?:~~)?(?:(T-\d+)[:\s]+)?(.+?)(?:~~)?\s*$/)
+      if (taskH?.[2]) {
+        const title = taskH[2].replace(/\*+/g, '').trim()
+        if (title && title.length >= 8 && !/^(ready|blocked|done|in.?progress|recently completed|status summary|open tasks?)/i.test(title)) {
+          if (section !== 'done') items.push({ section, taskId: taskH[1]?.toUpperCase(), title })
+        }
+      }
+      continue
+    }
+
+    if (section === 'done' || section === 'unknown') continue
+
+    // Checkbox: - [ ] title or - [x] title
+    const check = trimmed.match(/^-\s+\[([ xX])\]\s+(.+)/)
+    if (check?.[2]) {
+      const done = check[1]?.toLowerCase() === 'x'
+      if (!done) {
+        const title = check[2].replace(/\*+/g, '').replace(/\(?(high|medium|low)\s*priority\)?/i, '').trim()
+        const pri = check[2].match(/\(?(high|medium|low)\s*priority\)?/i)?.[1]?.toLowerCase()
+        if (title.length >= 8) items.push({ section, title, ...(pri ? { priority: pri } : {}) })
+      }
+    }
+  }
+  return items
+}
+
+/** Normalize a title for comparison (same as in aahp-reader). */
+function normTitle(title: string): string {
+  return title.toLowerCase().replace(/^\[T-\d+\]\s*/i, '').replace(/\(issue #\d+\)/gi, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/** Ensure every actionable NEXT_ACTIONS item has a MANIFEST task entry.
+ *  Agents using pure AAHP protocol may write NEXT_ACTIONS.md without touching
+ *  MANIFEST - this bridges that gap so createMissingGitHubIssues can then create
+ *  GitHub issues for all of them. */
+export function syncNextActionsToManifest(
+  repoPath: string,
+  handoffDir: string,
+  manifest: AahpManifest
+): AahpManifest {
+  const nextActionsMd = (() => {
+    try { return fs.readFileSync(path.join(handoffDir, 'NEXT_ACTIONS.md'), 'utf8') } catch { return null }
+  })()
+  if (!nextActionsMd) return manifest
+
+  const items = parseNextActionsBasic(nextActionsMd)
+  const actionable = items.filter(i => i.section === 'ready' || i.section === 'in_progress' || i.section === 'blocked')
+  if (actionable.length === 0) return manifest
+
+  const tasks = manifest.tasks ?? {}
+  let nextId = manifest.next_task_id ?? (Object.keys(tasks).length + 1)
+  let changed = false
+  const existingTitles = new Set(Object.values(tasks).map(t => normTitle(t.title)))
+
+  for (const item of actionable) {
+    if (item.taskId && tasks[item.taskId]) continue
+    if (existingTitles.has(normTitle(item.title))) continue
+
+    while (tasks[`T-${String(nextId).padStart(3, '0')}`]) nextId++
+    const taskId = item.taskId ?? `T-${String(nextId).padStart(3, '0')}`
+
+    const status: AahpTask['status'] =
+      item.section === 'in_progress' ? 'in_progress' :
+      item.section === 'blocked' ? 'blocked' : 'ready'
+    const priority: AahpTask['priority'] =
+      item.priority === 'high' ? 'high' : item.priority === 'low' ? 'low' : 'medium'
+
+    tasks[taskId] = { title: item.title.trim(), status, priority, depends_on: [], created: new Date().toISOString() }
+    existingTitles.add(normTitle(item.title))
+    nextId++
+    changed = true
+  }
+
+  if (!changed) return manifest
+  const updated: AahpManifest = { ...manifest, tasks, next_task_id: nextId }
+  fs.writeFileSync(path.join(handoffDir, 'MANIFEST.json'), JSON.stringify(updated, null, 2) + '\n', 'utf8')
+  return updated
+}
+
 export function scanProjects(rootDir: string): AahpProject[] {
   const projects: AahpProject[] = []
 
@@ -321,8 +420,9 @@ export function scanProjects(rootDir: string): AahpProject[] {
       continue
     }
 
-    // Sync GitHub issues → MANIFEST, then push unlinked tasks → GitHub
+    // Sync GitHub issues → MANIFEST, ensure NEXT_ACTIONS items have MANIFEST entries, then push unlinked tasks → GitHub
     manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest)
+    manifest = syncNextActionsToManifest(repoPath, handoffDir, manifest)
     manifest = createMissingGitHubIssues(repoPath, handoffDir, manifest)
 
     const tasks = manifest.tasks ?? {}
@@ -364,6 +464,7 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
   }
 
   manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest)
+  manifest = syncNextActionsToManifest(repoPath, handoffDir, manifest)
   manifest = createMissingGitHubIssues(repoPath, handoffDir, manifest)
 
   const tasks = manifest.tasks ?? {}
