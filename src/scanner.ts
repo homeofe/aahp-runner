@@ -223,6 +223,13 @@ export function fetchAndImportGitHubIssues(
       .filter((n): n is number => typeof n === 'number')
   )
 
+  // Reverse map: issue number → taskId, for updating status when issues are closed
+  const issueNumToTaskId = new Map(
+    Object.entries(tasks)
+      .filter(([, t]) => typeof t.github_issue === 'number')
+      .map(([id, t]) => [t.github_issue as number, id])
+  )
+
   // Build a normalized-title → taskId lookup for title-based fallback matching
   const titleToTaskId = new Map(
     Object.entries(tasks)
@@ -231,9 +238,18 @@ export function fetchAndImportGitHubIssues(
   )
 
   for (const issue of issues) {
-    if (importedIssueNumbers.has(issue.number)) continue
-
     const githubStatus = githubStateToAahpStatus(issue.state, issue.labels)
+
+    if (importedIssueNumbers.has(issue.number)) {
+      // Already linked - check if the GitHub issue was closed and task needs status update
+      const linkedId = issueNumToTaskId.get(issue.number)
+      if (linkedId && tasks[linkedId] && issue.state === 'closed' && tasks[linkedId]!.status !== 'done') {
+        tasks[linkedId]!.status = 'done'
+        if (!tasks[linkedId]!.completed) tasks[linkedId]!.completed = new Date().toISOString()
+        changed = true
+      }
+      continue
+    }
 
     // 1. Match by T-NNN embedded in the issue title
     const existingTaskId = extractTaskIdFromIssueTitle(issue.title)
@@ -301,34 +317,44 @@ export function fetchAndImportGitHubIssues(
 function parseNextActionsBasic(markdown: string): Array<{ section: string; taskId?: string; title: string; priority?: string }> {
   const items: Array<{ section: string; taskId?: string; title: string; priority?: string }> = []
   let section = 'unknown'
+  let insideTaskBlock = false  // true when inside a ### heading task block (sub-items are DOD, not tasks)
 
   for (const line of markdown.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
 
-    // Section headings
-    const heading = trimmed.match(/^#{1,3}\s+(.+)/)
-    if (heading && heading[1]) {
-      const h = heading[1].toLowerCase().replace(/[^\x20-\x7E]/g, '').trim()
-      if (/ready|work these next|next step|open task/i.test(h)) section = 'ready'
-      else if (/in.?progress|active|running|current/i.test(h)) section = 'in_progress'
-      else if (/blocked|cannot start/i.test(h)) section = 'blocked'
-      else if (/done|completed|recently completed/i.test(h)) section = 'done'
+    const headingLevel = trimmed.match(/^(#{1,6})\s+/)
+    if (headingLevel) {
+      const level = headingLevel[1]!.length
+      const rest = trimmed.slice(level).trim()
+      const h = rest.toLowerCase().replace(/[^\x20-\x7E]/g, '').trim()
 
-      // Heading-style task: ### T-016: title
-      const taskH = trimmed.match(/^#{2,3}\s+(?:~~)?(?:(T-\d+)[:\s]+)?(.+?)(?:~~)?\s*$/)
-      if (taskH?.[2]) {
-        const title = taskH[2].replace(/\*+/g, '').trim()
-        if (title && title.length >= 8 && !/^(ready|blocked|done|in.?progress|recently completed|status summary|open tasks?)/i.test(title)) {
-          if (section !== 'done') items.push({ section, taskId: taskH[1]?.toUpperCase(), title })
+      if (level <= 2) {
+        // ## section heading - update section and exit any task block
+        insideTaskBlock = false
+        if (/ready|work these next|next step|open task/i.test(h)) section = 'ready'
+        else if (/in.?progress|active|running|current/i.test(h)) section = 'in_progress'
+        else if (/blocked|cannot start/i.test(h)) section = 'blocked'
+        else if (/done|completed|recently completed/i.test(h)) section = 'done'
+      } else {
+        // ### (or deeper) heading - this is a task entry, enter task block
+        insideTaskBlock = true
+        const taskH = trimmed.match(/^#{2,3}\s+(?:~~)?(?:(T-\d+)[:\s]+)?(.+?)(?:~~)?\s*$/)
+        if (taskH?.[2]) {
+          const title = taskH[2].replace(/\*+/g, '').trim()
+          if (title && title.length >= 8 && !/^(ready|blocked|done|in.?progress|recently completed|status summary|open tasks?)/i.test(title)) {
+            if (section !== 'done') items.push({ section, taskId: taskH[1]?.toUpperCase(), title })
+          }
         }
       }
       continue
     }
 
     if (section === 'done' || section === 'unknown') continue
+    // Skip checkboxes that are inside a task block (they are Definition of Done / acceptance criteria)
+    if (insideTaskBlock) continue
 
-    // Checkbox: - [ ] title or - [x] title
+    // Checkbox: - [ ] title or - [x] title (only at section level, not inside a task block)
     const check = trimmed.match(/^-\s+\[([ xX])\]\s+(.+)/)
     if (check?.[2]) {
       const done = check[1]?.toLowerCase() === 'x'
