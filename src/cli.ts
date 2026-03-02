@@ -162,8 +162,9 @@ program
   .option('-k, --api-key <key>', 'Anthropic API key (or set ANTHROPIC_API_KEY env)')
   .option('-b, --backend <backend>', 'Agent backend: auto (default), claude, copilot, sdk', 'auto')
   .option('-t, --timeout <minutes>', 'Per-agent timeout in minutes (default: 10)', '10')
+  .option('--follow-up', 'After completing tasks, auto-plan idle repos and run new tasks (chains until done)')
   .action(async (projectName: string | undefined, opts: {
-    root: string; all: boolean; yes: boolean; limit: string; apiKey?: string; backend: string; timeout: string
+    root: string; all: boolean; yes: boolean; limit: string; apiKey?: string; backend: string; timeout: string; followUp: boolean
   }) => {
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
@@ -358,6 +359,110 @@ program
           console.log(chalk.gray(`  tail -f "${s.logFile}"`))
         }
       }
+
+      // ── Follow-up: plan idle repos, then re-run ──────────────────────────
+      if (opts.followUp) {
+        let followRound = 0
+        while (true) {
+          followRound++
+          // Find repos that just became idle (completed their last task)
+          const freshScan = scanProjects(rootDir)
+          const nowIdle = freshScan.filter(p =>
+            p.readyTasks.length === 0 && p.activeTasks.length === 0
+          )
+          // Also find any repos that still have ready tasks (more to run)
+          const stillActionable = freshScan.filter(p =>
+            p.readyTasks.length + p.activeTasks.length > 0
+          )
+
+          if (nowIdle.length === 0 && stillActionable.length === 0) {
+            console.log(chalk.green('\n✅ Follow-up complete — no more tasks or idle repos'))
+            break
+          }
+
+          // Plan idle repos
+          if (nowIdle.length > 0) {
+            console.log(chalk.bold(`\n📐 Follow-up round ${followRound}: planning ${nowIdle.length} idle repo(s)...`))
+            let plannedAny = false
+            for (const p of nowIdle) {
+              try {
+                const result = await runPlanningAgent(p, apiKey, (msg) => {
+                  const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
+                  if (line) process.stdout.write(chalk.gray(`  [${p.name}] ${line.slice(0, 80)}\r`))
+                }, backend, 5)
+                if (result.success) {
+                  scanProjectByPath(p.repoPath)
+                  console.log(chalk.green(`\n  ✅ ${p.name}: planned`))
+                  plannedAny = true
+                }
+              } catch (err) {
+                console.log(chalk.red(`\n  ❌ ${p.name}: planning failed — ${(err as Error).message}`))
+              }
+            }
+            if (!plannedAny) {
+              console.log(chalk.gray('  No new tasks generated — stopping follow-up'))
+              break
+            }
+          }
+
+          // Re-scan and run any newly available tasks
+          const nextRound = scanProjects(rootDir).filter(p =>
+            p.readyTasks.length + p.activeTasks.length > 0
+          )
+          if (nextRound.length === 0) {
+            console.log(chalk.green('\n✅ Follow-up complete — all repos idle after planning'))
+            break
+          }
+
+          console.log(chalk.bold(`\n🚀 Follow-up round ${followRound}: running agents on ${nextRound.length} repo(s)...`))
+          const maxConcurrent2 = parseInt(opts.limit, 10) || 0
+          const followStatuses: AgentStatus[] = nextRound.map(p => {
+            const top = getTopTask(p)
+            return { repo: p.name, taskId: top?.[0] ?? '?', taskTitle: top?.[1]?.title ?? '',
+              state: 'queued' as const, lastLine: '', logFile: agentLogPath(p.name), committed: false }
+          })
+          const followBoard = new StatusBoard(followStatuses)
+          followBoard.start()
+          const followTicker = setInterval(() => followBoard.refresh(), 1000)
+
+          await runWithLimit(nextRound, maxConcurrent2, async project => {
+            const top = getTopTask(project)
+            if (!top) return undefined
+            const [fTaskId, fTask] = top
+            const fSt = followStatuses.find(s => s.repo === project.name)!
+            fSt.state = 'running'
+            fSt.startedAt = new Date()
+            followBoard.refresh()
+            try {
+              const result = await runAgent(project, fTaskId, fTask, apiKey, msg => {
+                const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
+                if (line) fSt.lastLine = line.trim()
+                followBoard.refresh()
+              }, backend, timeoutMinutes)
+              fSt.state = result.committed ? 'done' : 'failed'
+              fSt.committed = result.committed
+              fSt.finishedAt = new Date()
+              fSt.lastLine = result.committed ? 'committed' : 'no commit'
+              followBoard.refresh()
+              recordMetric({ timestamp: new Date().toISOString(), repo: project.name, taskId: fTaskId,
+                taskTitle: fTask.title, backend,
+                durationMs: (fSt.finishedAt?.getTime() ?? 0) - (fSt.startedAt?.getTime() ?? 0),
+                turns: result.turns, success: result.committed, committed: result.committed })
+              return result
+            } catch (err) {
+              fSt.state = 'failed'
+              fSt.finishedAt = new Date()
+              fSt.lastLine = String(err).slice(0, 60)
+              followBoard.refresh()
+              return undefined
+            }
+          })
+
+          clearInterval(followTicker)
+          followBoard.finish()
+        }
+      }
+
       return
     }
 
@@ -1109,6 +1214,7 @@ Examples:
   aahp run --all --yes --backend claude     Use Claude Code for all tasks
   aahp run --all --yes --limit 3     Cap at 3 concurrent agents
   aahp run openclaw-ops              Spawn agent on one project
+  aahp run --all --yes --follow-up   Run agents, then auto-plan idle repos and re-run (chains until done)
   aahp logs                          List all agent log files
   aahp logs openclaw-ops             Show last 40 lines of agent log
   aahp logs openclaw-ops -f          Stream agent log live (tail -f)
