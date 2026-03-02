@@ -12,8 +12,9 @@ import { loadConfig, saveConfig, registerScheduler, unregisterScheduler } from '
 import { StatusBoard, AgentStatus, LOG_DIR, agentLogPath, writeLog } from './status-board.js'
 import { recordMetric, loadMetrics, summarizeMetrics, metricsFilePath, getAvgDuration } from './metrics-store.js'
 import { sendAlert } from './alerting.js'
+import { execSync } from 'child_process'
 
-const DEFAULT_ROOT = process.env['AAHP_ROOT'] ?? path.join(os.homedir(), 'Development')
+const DEFAULT_ROOT= process.env['AAHP_ROOT'] ?? path.join(os.homedir(), 'Development')
 
 /** Read ~/.aahp/sessions.json written by aahp-orchestrator SessionMonitor or aahp-runner */
 function readLiveSessions(): Array<{ repoPath: string; repoName: string; taskId: string; taskTitle: string; backend: string; startedAt: string }> {
@@ -23,6 +24,26 @@ function readLiveSessions(): Array<{ repoPath: string; repoName: string; taskId:
     const data = JSON.parse(fs.readFileSync(lockFile, 'utf8')) as { sessions?: unknown[] }
     return Array.isArray(data.sessions) ? data.sessions as ReturnType<typeof readLiveSessions> : []
   } catch { return [] }
+}
+
+/**
+ * Commit any dirty handoff metadata files (.ai/handoff/, .gitignore) in each
+ * project directory and push. Called after planning rounds and initial runs so
+ * that MANIFEST.json / NEXT_ACTIONS.md updates are never left uncommitted.
+ */
+function commitHandoffState(projectPaths: string[], label = 'aahp-runner scan'): void {
+  for (const dir of projectPaths) {
+    try {
+      const dirty = execSync('git status --porcelain -- .ai/handoff .gitignore', { cwd: dir, stdio: 'pipe' }).toString().trim()
+      if (!dirty) continue
+      execSync('git add .ai/handoff .gitignore', { cwd: dir, stdio: 'pipe' })
+      execSync(
+        `git commit -m "chore: update handoff state (${label})\n\nAuto-committed MANIFEST.json / NEXT_ACTIONS.md updates from\naahp-runner GitHub issue sync and planning.\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"`,
+        { cwd: dir, stdio: 'pipe' }
+      )
+      try { execSync('git push', { cwd: dir, stdio: 'pipe' }) } catch { /* push failure is non-fatal */ }
+    } catch { /* repo may have nothing to commit or unrelated changes */ }
+  }
 }
 
 /** Read last line from today's agent log for a repo */
@@ -484,6 +505,10 @@ program
         }
       }
 
+      // Commit any handoff metadata (MANIFEST.json, NEXT_ACTIONS.md) that was
+      // updated by scanProjects() / GitHub issue sync but never committed.
+      commitHandoffState(targets.map(p => p.repoPath), 'aahp-runner run')
+
       // Show remaining tasks across all repos (so user knows what's left)
       if (!opts.followUp) {
         const afterScan = scanProjects(rootDir)
@@ -543,6 +568,11 @@ program
             }
           }
 
+          // Commit handoff metadata written by planning agent and scanProjects()
+          if (nowIdle.length > 0) {
+            commitHandoffState(nowIdle.map(p => p.repoPath), `aahp-runner follow-up round ${followRound}`)
+          }
+
           // Re-scan and run ALL repos with actionable tasks (planned + pre-existing remaining)
           const nextRound = scanProjects(rootDir).filter(p =>
             p.readyTasks.length + p.activeTasks.length > 0
@@ -599,6 +629,9 @@ program
 
           clearInterval(followTicker)
           followBoard.finish()
+
+          // Commit handoff metadata updated by agents and post-run scanProjects()
+          commitHandoffState(nextRound.map(p => p.repoPath), `aahp-runner follow-up round ${followRound}`)
         }
       }
 
