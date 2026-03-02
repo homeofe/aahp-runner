@@ -53,13 +53,13 @@
       "summary": "4-phase pipeline: research, architect, implement, review"
     }
   },
-  "quick_context": "aahp-runner v0.1.0: autonomous AAHP agent runner. 3 backends (claude-cli, copilot, sdk), 5 commands, parallel execution. Cross-platform scheduling (cron on Linux/macOS, Task Scheduler on Windows). CI pipeline, 67 Vitest tests. npm-ready. All tasks complete.",
+  "quick_context": "aahp-runner v0.1.0: autonomous AAHP agent runner. 3 backends (claude-cli, copilot, sdk), 9 commands, parallel execution. Cross-platform scheduling (cron on Linux/macOS, Task Scheduler on Windows). CI pipeline, 98 Vitest tests. npm-ready. 5 tasks ready for v0.2.0: status enhancement, archive command, agent tests, retry logic, dry-run mode.",
   "token_budget": {
     "manifest_only": 80,
     "manifest_plus_core": 1200,
     "full_read": 4500
   },
-  "next_task_id": 7,
+  "next_task_id": 10,
   "tasks": {
     "T-001": {
       "title": "Add GitHub Actions CI pipeline",
@@ -112,6 +112,33 @@
       "github_issue": 2,
       "github_repo": "homeofe/aahp-runner",
       "notes": "Moved from homeofe/AAHP T-016. `aahp archive` is a CLI command — rotates LOG.md entries older than N days into an archive file to keep the handoff files lean."
+    },
+    "T-007": {
+      "title": "Add agent execution tests",
+      "status": "ready",
+      "priority": "high",
+      "depends_on": [],
+      "created": "2026-03-02T12:00:00Z",
+      "github_issue": 3,
+      "github_repo": "homeofe/aahp-runner"
+    },
+    "T-008": {
+      "title": "Add retry logic with exponential backoff",
+      "status": "ready",
+      "priority": "medium",
+      "depends_on": [],
+      "created": "2026-03-02T12:00:00Z",
+      "github_issue": 4,
+      "github_repo": "homeofe/aahp-runner"
+    },
+    "T-009": {
+      "title": "Add --dry-run flag to aahp run",
+      "status": "ready",
+      "priority": "low",
+      "depends_on": [],
+      "created": "2026-03-02T12:00:00Z",
+      "github_issue": 5,
+      "github_repo": "homeofe/aahp-runner"
     }
   }
 }

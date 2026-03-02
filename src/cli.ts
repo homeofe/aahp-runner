@@ -658,56 +658,121 @@ program
     }
 
     // Sequential mode (single project or interactive)
-    for (const project of targets) {
-      const topTask = getTopTask(project)
-      if (!topTask) continue
-      const [taskId, task] = topTask
-
-      if (!opts.yes) {
-        const answer = await promptYN(
-          `\nRun agent on ${chalk.bold(project.name)} → [${taskId}] ${task.title}? (y/n) `
-        )
-        if (!answer) { console.log(chalk.gray('Skipped.')); continue }
+    // When --follow-up is set, keep looping until no more tasks remain in any of the target repos.
+    const seqProjectNames = new Set(targets.map(p => p.name))
+    let seqRound = 0
+    const MAX_SEQ_ROUNDS = 50
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      seqRound++
+      if (seqRound > MAX_SEQ_ROUNDS) {
+        console.log(chalk.yellow(`\n⚠️  Reached follow-up limit (${MAX_SEQ_ROUNDS} rounds). Stopping.`))
+        break
       }
 
-      const seqStart = Date.now()
-      try {
-        const result = await runAgent(project, taskId, task, apiKey, msg => console.log(chalk.gray(msg)), backend, timeoutMinutes)
+      // Re-scan on every round so completed tasks are reflected
+      const seqScan = scanProjects(rootDir).filter(p => seqProjectNames.has(p.name))
+      const seqTargets = seqScan.filter(p => p.readyTasks.length + p.activeTasks.length > 0)
 
-        recordMetric({
-          timestamp: new Date().toISOString(),
-          repo: project.name,
-          taskId,
-          taskTitle: task.title,
-          backend,
-          durationMs: Date.now() - seqStart,
-          turns: result.turns,
-          success: result.success,
-          committed: result.committed,
-          cpuAvg: result.cpuAvg,
-          memPeakMB: result.memPeakMB,
-        })
-
-        if (result.success) {
-          console.log(chalk.green(`\n✅ ${project.name} [${taskId}] completed in ${result.turns} turns`))
-        } else {
-          console.log(chalk.yellow(`\n⚠️  ${project.name} [${taskId}] finished without committing (${result.turns} turns)`))
-          console.log(chalk.gray('   Check the output above - changes may need manual review'))
+      if (seqTargets.length === 0) {
+        // All target repos are idle — if follow-up, try planning them
+        if (opts.followUp) {
+          const idleTargets = seqScan.filter(p => p.blockedTasks.length === 0)
+          if (idleTargets.length > 0) {
+            console.log(chalk.bold(`\n📐 Follow-up: planning ${idleTargets.length} idle repo(s)...`))
+            for (const p of idleTargets) {
+              try {
+                const result = await runPlanningAgent(p, apiKey, (msg) => {
+                  const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
+                  if (line) process.stdout.write(chalk.gray(`\x1b[2K\r  [${p.name}] ${line.slice(0, 80)}`))
+                }, backend, 2)
+                process.stdout.write('\n')
+                if (result.success) {
+                  scanProjectByPath(p.repoPath)
+                  console.log(chalk.green(`  ✅ ${p.name}: planned`))
+                } else {
+                  console.log(chalk.gray(`  ⏭ ${p.name}: no new tasks generated`))
+                }
+              } catch (err) {
+                process.stdout.write('\n')
+                console.log(chalk.red(`  ❌ ${p.name}: planning failed — ${(err as Error).message}`))
+              }
+            }
+            commitHandoffState(idleTargets.map(p => p.repoPath), 'aahp-runner follow-up (sequential)')
+            // Check again after planning
+            const afterPlan = scanProjects(rootDir).filter(p => seqProjectNames.has(p.name) && p.readyTasks.length + p.activeTasks.length > 0)
+            if (afterPlan.length === 0) {
+              console.log(chalk.green('\n✅ Follow-up complete — all repos idle'))
+              break
+            }
+            continue // run newly planned tasks
+          }
         }
-      } catch (err) {
-        recordMetric({
-          timestamp: new Date().toISOString(),
-          repo: project.name,
-          taskId,
-          taskTitle: task.title,
-          backend,
-          durationMs: Date.now() - seqStart,
-          turns: 0,
-          success: false,
-          committed: false,
-        })
-        console.error(chalk.red(`\n❌ Agent failed on ${project.name}: ${String(err)}`))
+        if (seqRound === 1) {
+          console.log(chalk.green('\n✅ All projects are up to date — no actionable tasks'))
+        } else {
+          console.log(chalk.green('\n✅ Follow-up complete — no more tasks'))
+        }
+        break
       }
+
+      for (const project of seqTargets) {
+        const topTask = getTopTask(project)
+        if (!topTask) continue
+        const [taskId, task] = topTask
+
+        if (!opts.yes) {
+          const answer = await promptYN(
+            `\nRun agent on ${chalk.bold(project.name)} → [${taskId}] ${task.title}? (y/n) `
+          )
+          if (!answer) { console.log(chalk.gray('Skipped.')); continue }
+        }
+
+        const seqStart = Date.now()
+        try {
+          const result = await runAgent(project, taskId, task, apiKey, msg => console.log(chalk.gray(msg)), backend, timeoutMinutes)
+
+          recordMetric({
+            timestamp: new Date().toISOString(),
+            repo: project.name,
+            taskId,
+            taskTitle: task.title,
+            backend,
+            durationMs: Date.now() - seqStart,
+            turns: result.turns,
+            success: result.success,
+            committed: result.committed,
+            cpuAvg: result.cpuAvg,
+            memPeakMB: result.memPeakMB,
+          })
+
+          if (result.success) {
+            console.log(chalk.green(`\n✅ ${project.name} [${taskId}] completed in ${result.turns} turns`))
+          } else {
+            console.log(chalk.yellow(`\n⚠️  ${project.name} [${taskId}] finished without committing (${result.turns} turns)`))
+            console.log(chalk.gray('   Check the output above - changes may need manual review'))
+          }
+        } catch (err) {
+          recordMetric({
+            timestamp: new Date().toISOString(),
+            repo: project.name,
+            taskId,
+            taskTitle: task.title,
+            backend,
+            durationMs: Date.now() - seqStart,
+            turns: 0,
+            success: false,
+            committed: false,
+          })
+          console.error(chalk.red(`\n❌ Agent failed on ${project.name}: ${String(err)}`))
+        }
+      }
+
+      // Commit handoff state after each round
+      commitHandoffState(seqTargets.map(p => p.repoPath), `aahp-runner sequential round ${seqRound}`)
+
+      // Without --follow-up, run each target once and stop
+      if (!opts.followUp) break
     }
   })
 
