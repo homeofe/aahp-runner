@@ -607,13 +607,10 @@ export function annotateNextActionsWithIssues(
   }
 }
 
-/** Resolve the handoff directory for a repo.
- *  Tries .ai/handoff/ first (standard), then handoff/ at the repo root (legacy). */
+/** Resolve the handoff directory for a repo (.ai/handoff/ per AAHP protocol). */
 function resolveHandoffDir(repoPath: string): string | undefined {
   const aiHandoff = path.join(repoPath, '.ai', 'handoff')
   if (fs.existsSync(path.join(aiHandoff, 'MANIFEST.json'))) return aiHandoff
-  const rootHandoff = path.join(repoPath, 'handoff')
-  if (fs.existsSync(path.join(rootHandoff, 'MANIFEST.json'))) return rootHandoff
   return undefined
 }
 
