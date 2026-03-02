@@ -26,12 +26,25 @@ export function detectGitHubRepo(repoPath: string): string | null {
   }
 }
 
-/** Map GitHub labels to AAHP task priority */
-function labelsToPriority(labels: Array<{ name: string }>): AahpTask['priority'] {
+/** Map GitHub labels to AAHP task priority.
+ *  Returns undefined when no priority-related label is found (so callers can
+ *  decide whether to use a fallback instead of blindly overwriting). */
+function labelsToPriority(labels: Array<{ name: string }>): AahpTask['priority'] | undefined {
   const names = labels.map(l => l.name.toLowerCase())
   if (names.some(n => n.includes('high') || n.includes('bug') || n.includes('critical') || n.includes('urgent'))) return 'high'
   if (names.some(n => n.includes('medium') || n.includes('enhancement') || n.includes('feature'))) return 'medium'
-  return 'low'
+  if (names.some(n => n.includes('low'))) return 'low'
+  return undefined
+}
+
+/** Extract priority from a title containing [high], [medium], [low], or (high priority) etc. */
+function extractPriorityFromTitle(title: string): AahpTask['priority'] | undefined {
+  const lower = title.toLowerCase()
+  const bracket = lower.match(/\[(high|medium|low)\]/)
+  if (bracket?.[1]) return bracket[1] as AahpTask['priority']
+  const paren = lower.match(/\(?(high|medium|low)\s*priority\)?/)
+  if (paren?.[1]) return paren[1] as AahpTask['priority']
+  return undefined
 }
 
 /** Map GitHub issue state + labels to an AAHP task status.
@@ -241,6 +254,12 @@ export function createMissingGitHubIssues(
 
   let changed = false
   for (const [taskId, task] of toCreate) {
+    // Reconcile priority: title may contain [high]/[medium]/[low] that overrides task.priority
+    const titlePri = extractPriorityFromTitle(task.title)
+    if (titlePri && titlePri !== task.priority) {
+      task.priority = titlePri
+    }
+
     const title = `[${taskId}] ${task.title}`
 
     // Pre-flight dedup: skip creation if an open issue with same task-ID or near-identical title already exists
@@ -400,6 +419,12 @@ export function fetchAndImportGitHubIssues(
           delete task.completed
           changed = true
         }
+        // Sync priority from current GitHub labels (only when issue has a priority label)
+        const ghPriority = labelsToPriority(issue.labels)
+        if (ghPriority && task.priority !== ghPriority) {
+          task.priority = ghPriority
+          changed = true
+        }
       }
       continue
     }
@@ -425,6 +450,9 @@ export function fetchAndImportGitHubIssues(
         existingTask.status = githubStatus
         taskChanged = true
       }
+      // Sync priority from current GitHub labels
+      const ghPriority1 = labelsToPriority(issue.labels)
+      if (ghPriority1 && existingTask.priority !== ghPriority1) { existingTask.priority = ghPriority1; taskChanged = true }
 
       if (taskChanged) changed = true
       importedIssueNumbers.add(issue.number)
@@ -440,6 +468,9 @@ export function fetchAndImportGitHubIssues(
       existingTask.github_repo = repo
       const shouldSyncStatus = githubStatus === 'done' || existingTask.status !== 'in_progress'
       if (shouldSyncStatus && existingTask.status !== githubStatus) existingTask.status = githubStatus
+      // Sync priority from current GitHub labels
+      const ghPriority2 = labelsToPriority(issue.labels)
+      if (ghPriority2) existingTask.priority = ghPriority2
       titleToTaskId.delete(normalizedIssueTitle)
       importedIssueNumbers.add(issue.number)
       onLog?.(`[SYNC] issue #${issue.number} → ${titleMatchId} (title match)`)
@@ -464,6 +495,9 @@ export function fetchAndImportGitHubIssues(
       existingTask.github_repo = repo
       const shouldSyncStatus = githubStatus === 'done' || existingTask.status !== 'in_progress'
       if (shouldSyncStatus && existingTask.status !== githubStatus) existingTask.status = githubStatus
+      // Sync priority from current GitHub labels
+      const ghPriority3 = labelsToPriority(issue.labels)
+      if (ghPriority3) existingTask.priority = ghPriority3
       titleToTaskId.delete(normalizeTitle(existingTask.title))
       importedIssueNumbers.add(issue.number)
       onLog?.(`[SYNC] issue #${issue.number} → ${fuzzyMatchId} (fuzzy ${Math.round(fuzzyBestScore * 100)}%: "${issue.title}")`)
@@ -475,7 +509,7 @@ export function fetchAndImportGitHubIssues(
     tasks[taskId] = {
       title: issue.title,
       status: githubStatus,
-      priority: labelsToPriority(issue.labels),
+      priority: labelsToPriority(issue.labels) ?? extractPriorityFromTitle(issue.title) ?? 'medium',
       depends_on: [],
       created: new Date().toISOString(),
       notes: issue.body ? issue.body.slice(0, 500) : undefined,
@@ -526,7 +560,8 @@ function parseNextActionsBasic(markdown: string): Array<{ section: string; taskI
         if (taskH?.[2]) {
           const title = taskH[2].replace(/\*+/g, '').trim()
           if (title && title.length >= 8 && !/^(ready|blocked|done|in.?progress|recently completed|status summary|open tasks?)/i.test(title)) {
-            if (section !== 'done') items.push({ section, taskId: taskH[1]?.toUpperCase(), title })
+            const pri = extractPriorityFromTitle(title)
+            if (section !== 'done') items.push({ section, taskId: taskH[1]?.toUpperCase(), title, ...(pri ? { priority: pri } : {}) })
           }
         }
       }
@@ -542,8 +577,9 @@ function parseNextActionsBasic(markdown: string): Array<{ section: string; taskI
     if (check?.[2]) {
       const done = check[1]?.toLowerCase() === 'x'
       if (!done) {
-        const title = check[2].replace(/\*+/g, '').replace(/\(?(high|medium|low)\s*priority\)?/i, '').trim()
-        const pri = check[2].match(/\(?(high|medium|low)\s*priority\)?/i)?.[1]?.toLowerCase()
+        const rawTitle = check[2].replace(/\*+/g, '').trim()
+        const title = rawTitle.replace(/\(?(high|medium|low)\s*priority\)?/i, '').replace(/\s*\[(high|medium|low)\]\s*/i, ' ').trim()
+        const pri = rawTitle.match(/\(?(high|medium|low)\s*priority\)?/i)?.[1]?.toLowerCase() ?? extractPriorityFromTitle(rawTitle)
         if (title.length >= 8) items.push({ section, title, ...(pri ? { priority: pri } : {}) })
       }
     }
@@ -586,8 +622,12 @@ export function syncNextActionsToManifest(
     const status: AahpTask['status'] =
       item.section === 'in_progress' ? 'in_progress' :
       item.section === 'blocked' ? 'blocked' : 'ready'
+    const titlePri = extractPriorityFromTitle(item.title)
     const priority: AahpTask['priority'] =
-      item.priority === 'high' ? 'high' : item.priority === 'low' ? 'low' : 'medium'
+      item.priority === 'high' ? 'high' :
+      item.priority === 'medium' ? 'medium' :
+      item.priority === 'low' ? 'low' :
+      titlePri ?? 'medium'
 
     tasks[taskId] = {
       title: item.title.replace(/\s*\(issue #\d+\)\s*/gi, '').trim(),
@@ -651,7 +691,7 @@ export function extractReadmeNextSteps(
     tasks[taskId] = {
       title,
       status: 'ready',
-      priority: 'medium',
+      priority: extractPriorityFromTitle(title) ?? 'medium',
       depends_on: [],
       created: new Date().toISOString(),
       notes: 'Imported from README.md',
@@ -974,7 +1014,7 @@ export function buildSystemPrompt(project: AahpProject, taskId: string, task: Aa
     `5. Update MANIFEST.json: mark [${taskId}] as done, update quick_context, last_session`,
     `   Also unblock any tasks whose depends_on are now all done (change status blocked -> ready).`,
     task.github_issue
-      ? `   Then close GitHub issue #${task.github_issue}: run \`gh issue close ${task.github_issue} --repo ${task.github_repo} --comment "Resolved in [commit hash] via AAHP task ${taskId}"\``
+      ? `   Then close GitHub issue #${task.github_issue}: run \`gh issue close ${task.github_issue} --repo ${task.github_repo} --comment "Resolved in [\`<short-sha>\`](https://github.com/${task.github_repo}/commit/<full-sha>) via AAHP task ${taskId}. <one-line summary>"\``
       : '',
     `6. Regenerate .ai/handoff/NEXT_ACTIONS.md to reflect the CURRENT state of all tasks:`,
     `   - Top section: Status Summary table (Done | Ready | Blocked counts)`,
