@@ -472,7 +472,10 @@ export function syncNextActionsToManifest(
     const priority: AahpTask['priority'] =
       item.priority === 'high' ? 'high' : item.priority === 'low' ? 'low' : 'medium'
 
-    tasks[taskId] = { title: item.title.trim(), status, priority, depends_on: [], created: new Date().toISOString() }
+    tasks[taskId] = {
+      title: item.title.replace(/\s*\(issue #\d+\)\s*/gi, '').trim(),
+      status, priority, depends_on: [], created: new Date().toISOString(),
+    }
     existingTitles.add(normalizeTitle(item.title))
     nextId++
     changed = true
@@ -482,6 +485,126 @@ export function syncNextActionsToManifest(
   const updated: AahpManifest = { ...manifest, tasks, next_task_id: nextId }
   fs.writeFileSync(path.join(handoffDir, 'MANIFEST.json'), JSON.stringify(updated, null, 2) + '\n', 'utf8')
   return updated
+}
+
+/** Extract TODO/roadmap items from README.md and register them as MANIFEST tasks.
+ *  Only reads sections whose heading matches: Roadmap, TODO, Next Steps, Planned,
+ *  Backlog, Upcoming, Future, Work in Progress. Picks up unchecked checkboxes only. */
+export function extractReadmeNextSteps(
+  repoPath: string,
+  handoffDir: string,
+  manifest: AahpManifest,
+  onLog?: (msg: string) => void
+): AahpManifest {
+  let content: string
+  try { content = fs.readFileSync(path.join(repoPath, 'README.md'), 'utf8') } catch { return manifest }
+
+  const items: string[] = []
+  let inTargetSection = false
+
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim()
+    const headingMatch = trimmed.match(/^(#{1,4})\s+(.+)/)
+    if (headingMatch) {
+      const h = headingMatch[2]!.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').trim()
+      inTargetSection = /roadmap|todo|next steps?|planned|backlog|upcoming|future|work in progress/i.test(h)
+      continue
+    }
+    if (!inTargetSection) continue
+    const cbMatch = trimmed.match(/^-\s+\[\s*\]\s+(.+)/)
+    if (cbMatch?.[1]) {
+      const title = cbMatch[1].replace(/\*+/g, '').replace(/\s*\(issue #\d+\)\s*/gi, '').trim()
+      if (title.length >= 10) items.push(title)
+    }
+  }
+
+  if (items.length === 0) return manifest
+
+  const tasks = manifest.tasks ?? {}
+  let nextId = manifest.next_task_id ?? (Object.keys(tasks).length + 1)
+  let changed = false
+  const existingTitles = new Set(Object.values(tasks).map(t => normalizeTitle(t.title)))
+
+  for (const title of items) {
+    if (existingTitles.has(normalizeTitle(title))) continue
+    if (Object.values(tasks).some(t => titleSimilarity(title, t.title) >= 0.65)) continue
+
+    while (tasks[`T-${String(nextId).padStart(3, '0')}`]) nextId++
+    const taskId = `T-${String(nextId).padStart(3, '0')}`
+    tasks[taskId] = {
+      title,
+      status: 'ready',
+      priority: 'medium',
+      depends_on: [],
+      created: new Date().toISOString(),
+      notes: 'Imported from README.md',
+    }
+    existingTitles.add(normalizeTitle(title))
+    nextId++
+    changed = true
+    onLog?.(`[SYNC] README → ${taskId}: "${title}"`)
+  }
+
+  if (!changed) return manifest
+  const updated: AahpManifest = { ...manifest, tasks, next_task_id: nextId }
+  fs.writeFileSync(path.join(handoffDir, 'MANIFEST.json'), JSON.stringify(updated, null, 2) + '\n', 'utf8')
+  return updated
+}
+
+/** After creating/linking GitHub issues, write (issue #N) annotations back into
+ *  NEXT_ACTIONS.md headings so LLMs reading the file can see the linked issue.
+ *  Only modifies lines that are task headings (## or ###). */
+export function annotateNextActionsWithIssues(
+  handoffDir: string,
+  tasks: Record<string, AahpTask>,
+  onLog?: (msg: string) => void
+): void {
+  const naPath = path.join(handoffDir, 'NEXT_ACTIONS.md')
+  let content: string
+  try { content = fs.readFileSync(naPath, 'utf8') } catch { return }
+
+  // Build lookups: taskId → issueNumber, normalizedTitle → issueNumber
+  const taskIdToIssue = new Map<string, number>()
+  const normTitleToIssue = new Map<string, number>()
+  for (const [id, task] of Object.entries(tasks)) {
+    if (typeof task.github_issue === 'number' && task.github_issue > 0) {
+      taskIdToIssue.set(id.toUpperCase(), task.github_issue)
+      normTitleToIssue.set(normalizeTitle(task.title), task.github_issue)
+    }
+  }
+  if (taskIdToIssue.size === 0 && normTitleToIssue.size === 0) return
+
+  let changed = false
+  let annotated = 0
+  const lines = content.split('\n')
+  const updated = lines.map(line => {
+    const m = line.match(/^(#{2,4})\s+(?:~~)?(?:(T-\d+)[:\s]+)?(.+?)(?:~~)?\s*$/)
+    if (!m) return line
+    const hashes = m[1]!
+    const taskId = m[2]?.toUpperCase()
+    // Strip any existing annotation to avoid duplication
+    const cleanTitle = m[3]!.replace(/\s*\(issue #\d+\)\s*/gi, '').trim()
+
+    let issueNum = taskId ? taskIdToIssue.get(taskId) : undefined
+    if (!issueNum) issueNum = normTitleToIssue.get(normalizeTitle(cleanTitle))
+    if (!issueNum) return line
+
+    const rebuilt = taskId
+      ? `${hashes} ${taskId}: ${cleanTitle} (issue #${issueNum})`
+      : `${hashes} ${cleanTitle} (issue #${issueNum})`
+
+    if (rebuilt !== line.trimEnd()) {
+      changed = true
+      annotated++
+      return rebuilt
+    }
+    return line
+  })
+
+  if (changed) {
+    fs.writeFileSync(naPath, updated.join('\n'), 'utf8')
+    onLog?.(`[SYNC] NEXT_ACTIONS.md annotated: ${annotated} heading(s) updated with issue link(s)`)
+  }
 }
 
 export function scanProjects(rootDir: string): AahpProject[] {
@@ -533,7 +656,10 @@ export function scanProjects(rootDir: string): AahpProject[] {
     // Sync GitHub issues → MANIFEST, ensure NEXT_ACTIONS items have MANIFEST entries, then push unlinked tasks → GitHub
     manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest, repoLog)
     manifest = syncNextActionsToManifest(repoPath, handoffDir, manifest)
+    manifest = extractReadmeNextSteps(repoPath, handoffDir, manifest, repoLog)
     manifest = createMissingGitHubIssues(repoPath, handoffDir, manifest, repoLog)
+    // Write issue numbers back into NEXT_ACTIONS.md so LLMs reading it see the GitHub links
+    annotateNextActionsWithIssues(handoffDir, manifest.tasks ?? {}, repoLog)
 
     const tasks = manifest.tasks ?? {}
     const readyTasks = Object.entries(tasks).filter(
@@ -604,7 +730,9 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
 
   manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest, repoLog)
   manifest = syncNextActionsToManifest(repoPath, handoffDir, manifest)
+  manifest = extractReadmeNextSteps(repoPath, handoffDir, manifest, repoLog)
   manifest = createMissingGitHubIssues(repoPath, handoffDir, manifest, repoLog)
+  annotateNextActionsWithIssues(handoffDir, manifest.tasks ?? {}, repoLog)
 
   const tasks = manifest.tasks ?? {}
   const readyTasks = Object.entries(tasks).filter(
