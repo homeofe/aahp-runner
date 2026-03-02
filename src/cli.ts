@@ -807,7 +807,7 @@ program
     // Per-repo: scan rootDir for repos with .ai/logs/
     try {
       for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue
+        if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
         const repoLogDir = path.join(rootDir, entry.name, '.ai', 'logs')
         if (!fs.existsSync(repoLogDir)) continue
         for (const f of fs.readdirSync(repoLogDir).filter(f => f.endsWith('.log'))) {
@@ -1261,7 +1261,7 @@ program
       let n = 0
       const entries = fs.readdirSync(rootDir, { withFileTypes: true })
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue
+        if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
         const d = path.join(rootDir, entry.name)
         if (!fs.existsSync(path.join(d, '.git'))) continue
         try {

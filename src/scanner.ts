@@ -618,7 +618,7 @@ export function scanProjects(rootDir: string): AahpProject[] {
   }
 
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
     const repoPath = path.join(rootDir, entry.name)
     const handoffDir = path.join(repoPath, '.ai', 'handoff')
     const manifestPath = path.join(handoffDir, 'MANIFEST.json')
@@ -925,7 +925,7 @@ export function scanAllGitRepos(rootDir: string): GitRepoInfo[] {
   } catch { return results }
 
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
     const repoPath = path.join(rootDir, entry.name)
     if (!fs.existsSync(path.join(repoPath, '.git'))) continue
     const hasManifest = fs.existsSync(path.join(repoPath, '.ai', 'handoff', 'MANIFEST.json'))
