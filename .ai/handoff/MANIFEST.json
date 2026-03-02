@@ -59,7 +59,7 @@
     "manifest_plus_core": 1200,
     "full_read": 4500
   },
-  "next_task_id": 5,
+  "next_task_id": 7,
   "tasks": {
     "T-001": {
       "title": "Add GitHub Actions CI pipeline",
@@ -92,6 +92,26 @@
       "depends_on": [],
       "created": "2026-02-27T02:31:15Z",
       "completed": "2026-02-27T04:06:28.344Z"
+    },
+    "T-005": {
+      "title": "Add `aahp status` quick-look command",
+      "status": "ready",
+      "priority": "medium",
+      "depends_on": [],
+      "created": "2026-03-02T03:22:00Z",
+      "github_issue": 1,
+      "github_repo": "homeofe/aahp-runner",
+      "notes": "Moved from homeofe/AAHP T-015. `aahp status` is a CLI command — the `aahp` bin lives in aahp-runner (dist/cli.js). Should show a quick summary of all projects: task counts, last commit, blocked/ready state."
+    },
+    "T-006": {
+      "title": "Add `aahp archive` command for LOG.md rotation",
+      "status": "ready",
+      "priority": "medium",
+      "depends_on": [],
+      "created": "2026-03-02T03:22:00Z",
+      "github_issue": 2,
+      "github_repo": "homeofe/aahp-runner",
+      "notes": "Moved from homeofe/AAHP T-016. `aahp archive` is a CLI command — rotates LOG.md entries older than N days into an archive file to keep the handoff files lean."
     }
   }
 }

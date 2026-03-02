@@ -505,10 +505,10 @@ program
         const MAX_FOLLOW_ROUNDS = 20
         while (followRound < MAX_FOLLOW_ROUNDS) {
           followRound++
-          // Find repos that just became idle (completed their last task)
+          // Find repos that just became idle (completed their last task, no blocked-only limbo)
           const freshScan = scanProjects(rootDir)
           const nowIdle = freshScan.filter(p =>
-            p.readyTasks.length === 0 && p.activeTasks.length === 0
+            p.readyTasks.length === 0 && p.activeTasks.length === 0 && p.blockedTasks.length === 0
           )
           // Also find any repos that still have ready tasks (more to run)
           const stillActionable = freshScan.filter(p =>
@@ -527,16 +527,18 @@ program
               try {
                 const result = await runPlanningAgent(p, apiKey, (msg) => {
                   const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
-                  if (line) process.stdout.write(chalk.gray(`  [${p.name}] ${line.slice(0, 80)}\r`))
-                }, backend, 5)
+                  if (line) process.stdout.write(chalk.gray(`\x1b[2K\r  [${p.name}] ${line.slice(0, 80)}`))
+                }, backend, 2)
+                process.stdout.write('\n')
                 if (result.success) {
                   scanProjectByPath(p.repoPath)
-                  console.log(chalk.green(`\n  ✅ ${p.name}: planned`))
+                  console.log(chalk.green(`  ✅ ${p.name}: planned`))
                 } else {
-                  console.log(chalk.gray(`\n  ⏭ ${p.name}: no new tasks generated`))
+                  console.log(chalk.gray(`  ⏭ ${p.name}: no new tasks generated`))
                 }
               } catch (err) {
-                console.log(chalk.red(`\n  ❌ ${p.name}: planning failed — ${(err as Error).message}`))
+                process.stdout.write('\n')
+                console.log(chalk.red(`  ❌ ${p.name}: planning failed — ${(err as Error).message}`))
               }
             }
           }
