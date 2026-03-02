@@ -29,8 +29,8 @@ export function detectGitHubRepo(repoPath: string): string | null {
 /** Map GitHub labels to AAHP task priority */
 function labelsToPriority(labels: Array<{ name: string }>): AahpTask['priority'] {
   const names = labels.map(l => l.name.toLowerCase())
-  if (names.some(n => n.includes('bug') || n.includes('critical') || n.includes('urgent'))) return 'high'
-  if (names.some(n => n.includes('enhancement') || n.includes('feature') || n.includes('medium'))) return 'medium'
+  if (names.some(n => n.includes('high') || n.includes('bug') || n.includes('critical') || n.includes('urgent'))) return 'high'
+  if (names.some(n => n.includes('medium') || n.includes('enhancement') || n.includes('feature'))) return 'medium'
   return 'low'
 }
 
