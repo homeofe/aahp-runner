@@ -183,14 +183,26 @@ program
     const actionable = projects.filter(p => p.readyTasks.length + p.activeTasks.length > 0)
 
     if (actionable.length === 0) {
-      const hasBlocked = projects.some(p => p.blockedTasks.length > 0)
-      if (hasBlocked) {
-        console.log(chalk.yellow('No projects with ready tasks. Some have blocked tasks (need manual action).'))
-        console.log(chalk.gray('  Run `aahp list` to see blocked tasks.'))
+      const blocked = projects.filter(p => p.blockedTasks.length > 0)
+      if (blocked.length > 0) {
+        console.log(chalk.yellow(`\nNo ready tasks. ${blocked.length} repo(s) have blocked tasks (need manual action):`))
+        for (const p of blocked) {
+          const ids = p.blockedTasks.map(([id]) => id).join(', ')
+          console.log(chalk.gray(`  ${p.name}: ${ids} — ${p.blockedTasks[0]?.[1]?.title ?? ''}`))
+        }
+        console.log(chalk.gray('\n  Use `aahp list` to inspect · unblock in MANIFEST.json or close the GitHub issue'))
       } else {
-        console.log(chalk.yellow('No projects with ready tasks found.'))
+        console.log(chalk.green('\n✅ All projects are up to date — no actionable tasks'))
       }
       return
+    }
+
+    // Show blocked projects being skipped (so user knows why count differs from aahp list)
+    const skippedBlocked = projects.filter(p =>
+      p.readyTasks.length === 0 && p.activeTasks.length === 0 && p.blockedTasks.length > 0
+    )
+    if (skippedBlocked.length > 0 && opts.all) {
+      console.log(chalk.gray(`\n  Note: skipping ${skippedBlocked.length} repo(s) with only blocked tasks: ${skippedBlocked.map(p => p.name).join(', ')}`))
     }
 
     let targets = actionable
@@ -361,14 +373,30 @@ program
       if (failedStatuses.length > 0) {
         console.log(chalk.gray('\nTo inspect failed agents:'))
         for (const s of failedStatuses) {
-          console.log(chalk.gray(`  tail -f "${s.logFile}"`))
+          console.log(chalk.gray(`  aahp logs ${s.repo}`))
         }
       }
 
-      // ── Follow-up: plan idle repos, then re-run ──────────────────────────
+      // Show remaining tasks across all repos (so user knows what's left)
+      if (!opts.followUp) {
+        const afterScan = scanProjects(rootDir)
+        const remaining = afterScan.filter(p => p.readyTasks.length + p.activeTasks.length > 0)
+        const remainingTaskCount = remaining.reduce((n, p) => n + p.readyTasks.length + p.activeTasks.length, 0)
+        if (remaining.length > 0) {
+          console.log(chalk.yellow(`\n  ${remainingTaskCount} task(s) still ready across ${remaining.length} repo(s)`))
+          for (const p of remaining) {
+            const ids = [...p.activeTasks, ...p.readyTasks].map(([id]) => id).join(', ')
+            console.log(chalk.gray(`    ${p.name}: ${ids}`))
+          }
+          console.log(chalk.gray(`\n  Run again to continue, or use --follow-up to chain automatically`))
+        }
+      }
+
+      // ── Follow-up: plan idle repos and re-run remaining tasks ─────────────
       if (opts.followUp) {
         let followRound = 0
-        while (true) {
+        const MAX_FOLLOW_ROUNDS = 20
+        while (followRound < MAX_FOLLOW_ROUNDS) {
           followRound++
           // Find repos that just became idle (completed their last task)
           const freshScan = scanProjects(rootDir)
@@ -385,10 +413,9 @@ program
             break
           }
 
-          // Plan idle repos
+          // Plan idle repos (only if there are any - don't block on this if there aren't)
           if (nowIdle.length > 0) {
             console.log(chalk.bold(`\n📐 Follow-up round ${followRound}: planning ${nowIdle.length} idle repo(s)...`))
-            let plannedAny = false
             for (const p of nowIdle) {
               try {
                 const result = await runPlanningAgent(p, apiKey, (msg) => {
@@ -398,28 +425,26 @@ program
                 if (result.success) {
                   scanProjectByPath(p.repoPath)
                   console.log(chalk.green(`\n  ✅ ${p.name}: planned`))
-                  plannedAny = true
+                } else {
+                  console.log(chalk.gray(`\n  ⏭ ${p.name}: no new tasks generated`))
                 }
               } catch (err) {
                 console.log(chalk.red(`\n  ❌ ${p.name}: planning failed — ${(err as Error).message}`))
               }
             }
-            if (!plannedAny) {
-              console.log(chalk.gray('  No new tasks generated — stopping follow-up'))
-              break
-            }
           }
 
-          // Re-scan and run any newly available tasks
+          // Re-scan and run ALL repos with actionable tasks (planned + pre-existing remaining)
           const nextRound = scanProjects(rootDir).filter(p =>
             p.readyTasks.length + p.activeTasks.length > 0
           )
           if (nextRound.length === 0) {
-            console.log(chalk.green('\n✅ Follow-up complete — all repos idle after planning'))
+            console.log(chalk.green('\n✅ Follow-up complete — all repos idle'))
             break
           }
 
-          console.log(chalk.bold(`\n🚀 Follow-up round ${followRound}: running agents on ${nextRound.length} repo(s)...`))
+          const nextTaskCount = nextRound.reduce((n, p) => n + p.readyTasks.length + p.activeTasks.length, 0)
+          console.log(chalk.bold(`\n🚀 Follow-up round ${followRound}: running ${nextTaskCount} task(s) across ${nextRound.length} repo(s)...`))
           const maxConcurrent2 = parseInt(opts.limit, 10) || 0
           const followStatuses: AgentStatus[] = nextRound.map(p => {
             const top = getTopTask(p)
