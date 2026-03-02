@@ -607,6 +607,16 @@ export function annotateNextActionsWithIssues(
   }
 }
 
+/** Resolve the handoff directory for a repo.
+ *  Tries .ai/handoff/ first (standard), then handoff/ at the repo root (legacy). */
+function resolveHandoffDir(repoPath: string): string | undefined {
+  const aiHandoff = path.join(repoPath, '.ai', 'handoff')
+  if (fs.existsSync(path.join(aiHandoff, 'MANIFEST.json'))) return aiHandoff
+  const rootHandoff = path.join(repoPath, 'handoff')
+  if (fs.existsSync(path.join(rootHandoff, 'MANIFEST.json'))) return rootHandoff
+  return undefined
+}
+
 export function scanProjects(rootDir: string): AahpProject[] {
   const projects: AahpProject[] = []
 
@@ -620,7 +630,8 @@ export function scanProjects(rootDir: string): AahpProject[] {
   for (const entry of entries) {
     if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
     const repoPath = path.join(rootDir, entry.name)
-    const handoffDir = path.join(repoPath, '.ai', 'handoff')
+    const handoffDir = resolveHandoffDir(repoPath)
+    if (!handoffDir) continue
     const manifestPath = path.join(handoffDir, 'MANIFEST.json')
 
     if (!fs.existsSync(manifestPath)) continue
@@ -700,10 +711,13 @@ export function scanProjects(rootDir: string): AahpProject[] {
  *  then immediately scan it (which fetches GitHub issues) so it joins the pool. */
 export function bootstrapProject(repoPath: string): AahpProject | undefined {
   const projectName = path.basename(repoPath)
+  // If a handoff dir already exists (standard OR legacy root location), just scan it
+  const existing = resolveHandoffDir(repoPath)
+  if (existing) return scanProjectByPath(repoPath)
+
+  // Create the standard .ai/handoff/ structure
   const handoffDir = path.join(repoPath, '.ai', 'handoff')
   const manifestPath = path.join(handoffDir, 'MANIFEST.json')
-  if (fs.existsSync(manifestPath)) return scanProjectByPath(repoPath)
-
   try {
     fs.mkdirSync(handoffDir, { recursive: true })
     const seed = {
@@ -720,7 +734,8 @@ export function bootstrapProject(repoPath: string): AahpProject | undefined {
 }
 
 export function scanProjectByPath(repoPath: string): AahpProject | undefined {
-  const handoffDir = path.join(repoPath, '.ai', 'handoff')
+  const handoffDir = resolveHandoffDir(repoPath)
+  if (!handoffDir) return undefined
   const manifestPath = path.join(handoffDir, 'MANIFEST.json')
   if (!fs.existsSync(manifestPath)) return undefined
 
@@ -951,7 +966,7 @@ export function scanAllGitRepos(rootDir: string): GitRepoInfo[] {
     if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
     const repoPath = path.join(rootDir, entry.name)
     if (!fs.existsSync(path.join(repoPath, '.git'))) continue
-    const hasManifest = fs.existsSync(path.join(repoPath, '.ai', 'handoff', 'MANIFEST.json'))
+    const hasManifest = !!resolveHandoffDir(repoPath)
     const githubRepo = detectGitHubRepo(repoPath)
     results.push({ name: entry.name, repoPath, hasManifest, isGitHub: !!githubRepo, githubRepo })
   }
