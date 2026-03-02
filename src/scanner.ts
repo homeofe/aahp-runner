@@ -112,6 +112,93 @@ function ensureLabel(repo: string, name: string, color: string, cwd: string): vo
   } catch { /* best-effort */ }
 }
 
+/** Detect and close duplicate open GitHub issues in a repo.
+ *  Two issues are considered duplicates when:
+ *   - they share the same T-NNN task ID in their title, OR
+ *   - their normalized titles have >= 0.85 Jaccard similarity
+ *  The lower-numbered (older) issue is kept; the higher-numbered (newer) one
+ *  is closed with a "Duplicate of #N" comment and marked `not_planned`.
+ *  MANIFEST tasks linked to closed duplicates are removed (the keeper task
+ *  already covers the work). Returns updated manifest. */
+export function deduplicateGitHubIssues(
+  repoPath: string,
+  handoffDir: string,
+  manifest: AahpManifest,
+  onLog?: (msg: string) => void
+): AahpManifest {
+  const repo = detectGitHubRepo(repoPath)
+  if (!repo) return manifest
+
+  let openIssues: GitHubIssue[]
+  try {
+    const out = execSync(
+      `gh issue list --repo ${repo} --state open --json number,title,labels --limit 200`,
+      { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 }
+    ).toString()
+    openIssues = JSON.parse(out) as GitHubIssue[]
+  } catch {
+    return manifest
+  }
+
+  if (openIssues.length < 2) return manifest
+
+  const DEDUP_THRESHOLD = 0.85
+  const closedNums = new Set<number>()
+
+  // Group by T-NNN id first (exact), then by title similarity
+  for (let i = 0; i < openIssues.length; i++) {
+    const a = openIssues[i]!
+    if (closedNums.has(a.number)) continue
+
+    for (let j = i + 1; j < openIssues.length; j++) {
+      const b = openIssues[j]!
+      if (closedNums.has(b.number)) continue
+
+      const aId = extractTaskIdFromIssueTitle(a.title)
+      const bId = extractTaskIdFromIssueTitle(b.title)
+      const sameTaskId = aId && bId && aId === bId
+      const similarity = sameTaskId ? 1 : titleSimilarity(a.title, b.title)
+
+      if (sameTaskId || similarity >= DEDUP_THRESHOLD) {
+        // Keep lower number (older); close higher number (newer)
+        const keep = a.number < b.number ? a : b
+        const close = a.number < b.number ? b : a
+
+        onLog?.(`[DEDUP] closing #${close.number} as duplicate of #${keep.number} (${sameTaskId ? 'same task ID' : `${Math.round(similarity * 100)}% similarity`}): "${close.title}"`)
+
+        try {
+          spawnSync('gh', [
+            'issue', 'close', String(close.number),
+            '--repo', repo,
+            '--reason', 'not planned',
+            '--comment', `Duplicate of #${keep.number} — closed automatically by AAHP duplicate detector.`,
+          ], { cwd: repoPath, timeout: 15000, encoding: 'utf8' })
+        } catch { /* best-effort */ }
+
+        closedNums.add(close.number)
+      }
+    }
+  }
+
+  if (closedNums.size === 0) return manifest
+
+  // Remove or cancel MANIFEST tasks linked to closed duplicate issues
+  const tasks = manifest.tasks ?? {}
+  let changed = false
+  for (const [taskId, task] of Object.entries(tasks)) {
+    if (typeof task.github_issue === 'number' && closedNums.has(task.github_issue)) {
+      onLog?.(`[DEDUP] ${taskId} linked to closed duplicate #${task.github_issue} — removing from manifest`)
+      delete tasks[taskId]
+      changed = true
+    }
+  }
+
+  if (!changed) return manifest
+  const updated: AahpManifest = { ...manifest, tasks }
+  fs.writeFileSync(path.join(handoffDir, 'MANIFEST.json'), JSON.stringify(updated, null, 2) + '\n', 'utf8')
+  return updated
+}
+
 /** For every actionable task that has no GitHub issue, create one and link it back.
  *  Writes MANIFEST.json if any issues were created. Returns updated manifest. */
 export function createMissingGitHubIssues(
@@ -130,6 +217,19 @@ export function createMissingGitHubIssues(
   ) as Array<[string, AahpTask]>
 
   if (toCreate.length === 0) return manifest
+
+  // Pre-flight: fetch open issues to avoid creating duplicates on retried/crashed runs
+  let existingOpen: GitHubIssue[] = []
+  try {
+    const out = execSync(
+      `gh issue list --repo ${repo} --state open --json number,title --limit 200`,
+      { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 }
+    ).toString()
+    existingOpen = JSON.parse(out) as GitHubIssue[]
+  } catch { /* gh unavailable - skip pre-flight, proceed with creation */ }
+
+  const PREFLIGHT_THRESHOLD = 0.85
+
   onLog?.(`[SYNC] creating ${toCreate.length} missing GitHub issue(s) in ${repo}`)
 
   // Ensure all needed labels exist before creating issues
@@ -142,6 +242,23 @@ export function createMissingGitHubIssues(
   let changed = false
   for (const [taskId, task] of toCreate) {
     const title = `[${taskId}] ${task.title}`
+
+    // Pre-flight dedup: skip creation if an open issue with same task-ID or near-identical title already exists
+    if (existingOpen.length > 0) {
+      const clash = existingOpen.find(i => {
+        const iTaskId = extractTaskIdFromIssueTitle(i.title)
+        if (iTaskId && iTaskId === taskId) return true
+        return titleSimilarity(i.title, title) >= PREFLIGHT_THRESHOLD
+      })
+      if (clash) {
+        onLog?.(`[DEDUP] ${taskId} skipped — open issue #${clash.number} already covers this task: "${clash.title}"`)
+        task.github_issue = clash.number
+        task.github_repo = repo
+        changed = true
+        continue
+      }
+    }
+
     const labelArgs = [
       ...(PRIORITY_LABELS[task.priority] ? ['--label', PRIORITY_LABELS[task.priority]!.name] : []),
       ...(STATUS_LABELS[task.status]     ? ['--label', STATUS_LABELS[task.status]!.name]     : []),
@@ -665,6 +782,7 @@ export function scanProjects(rootDir: string): AahpProject[] {
     manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest, repoLog)
     manifest = syncNextActionsToManifest(repoPath, handoffDir, manifest)
     manifest = extractReadmeNextSteps(repoPath, handoffDir, manifest, repoLog)
+    manifest = deduplicateGitHubIssues(repoPath, handoffDir, manifest, repoLog)
     manifest = createMissingGitHubIssues(repoPath, handoffDir, manifest, repoLog)
     // Write issue numbers back into NEXT_ACTIONS.md so LLMs reading it see the GitHub links
     annotateNextActionsWithIssues(handoffDir, manifest.tasks ?? {}, repoLog)
@@ -766,6 +884,7 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
   manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest, repoLog)
   manifest = syncNextActionsToManifest(repoPath, handoffDir, manifest)
   manifest = extractReadmeNextSteps(repoPath, handoffDir, manifest, repoLog)
+  manifest = deduplicateGitHubIssues(repoPath, handoffDir, manifest, repoLog)
   manifest = createMissingGitHubIssues(repoPath, handoffDir, manifest, repoLog)
   annotateNextActionsWithIssues(handoffDir, manifest.tasks ?? {}, repoLog)
 
