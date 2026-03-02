@@ -1233,7 +1233,7 @@ program
 
 program
   .name('aahp')
-  .description('Autonomous AAHP agent runner - spawns Claude or Copilot agents to work through project tasks')
+  .description('Autonomous AAHP agent runner - spawns Claude/Copilot agents to plan tasks, implement them, and commit')
   .version('0.1.0')
   .addHelpText('after', `
 Backends:
@@ -1242,36 +1242,62 @@ Backends:
   copilot  GitHub Copilot only (requires: gh auth login with Copilot subscription)
   sdk      Anthropic API key only
 
+Autonomy modes:
+  Single pass      aahp run --all --yes                   run current tasks, stop
+  Self-chaining    aahp run --all --yes --follow-up        run → plan idle → re-run, until done
+  Overnight loop   aahp overnight --yes                    plan+run+commit cycle, 8h by default
+  Forever daemon   aahp overnight --yes --hours 0          same, never stops (Ctrl+C)
+  Scheduled        aahp schedule --time 02:00              OS-level daily trigger
+
 Examples:
-  aahp                               Guided setup - shows next step automatically
-  aahp list                          See all projects and their top ready task
-  aahp status                        Live agents + project overview
-  aahp status -w                     Watch mode: refresh every 3s
-  aahp run --all --yes               Spawn agents on ALL projects (auto backend)
-  aahp run --all --yes --backend copilot    Use GitHub Copilot for all tasks
+  aahp                               Guided setup wizard
+  aahp list                          Repos with actionable tasks
+  aahp list --all                    Include idle repos (no tasks)
+  aahp status                        Snapshot of live agents + project table
+  aahp status -w                     Auto-refresh every 3s (Ctrl+C to stop)
+
+  aahp run openclaw-ops              Run agent on one project (interactive confirm)
+  aahp run --all --yes               Spawn agents on ALL projects in parallel
   aahp run --all --yes --backend claude     Use Claude Code for all tasks
+  aahp run --all --yes --backend copilot    Use GitHub Copilot for all tasks
   aahp run --all --yes --limit 3     Cap at 3 concurrent agents
-  aahp run openclaw-ops              Spawn agent on one project
-  aahp run --all --yes --follow-up   Run agents, then auto-plan idle repos and re-run (chains until done)
-  aahp logs                          List all agent log files
+  aahp run --all --yes --timeout 15  Set per-agent timeout to 15 minutes
+  aahp run --all --yes --follow-up   Run, then plan idle repos, re-run new tasks (chains)
+
+  aahp plan                          Plan first idle repo (asks confirm)
+  aahp plan --all --yes              Plan ALL idle repos without prompts
+  aahp plan openclaw-ops             Plan a specific repo
+  aahp plan --local                  Include repos with no GitHub remote
+
+  aahp overnight --yes               Full autonomous loop: plan+run+commit, 8h
+  aahp overnight --yes --hours 0     Run forever until Ctrl+C
+  aahp overnight --yes --limit 3 --pause 10   3 agents, 10min between cycles
+  aahp overnight --yes --local       Include local-only repos (no GitHub remote)
+
+  aahp logs                          List all agent logs (per-repo .ai/logs/ + fallback)
   aahp logs openclaw-ops             Show last 40 lines of agent log
   aahp logs openclaw-ops -f          Stream agent log live (tail -f)
-  aahp run --all --yes --timeout 15   Set per-agent timeout to 15 minutes
+  aahp logs openclaw-ops -n 100      Show last 100 lines
+
   aahp metrics                       Show historical run metrics
   aahp metrics --json                Export metrics as JSON
-  aahp metrics --repo openclaw-ops   Filter metrics by repo
-  aahp config --backend copilot      Save default backend
-  aahp config --api-key sk-ant-...   Save Anthropic API key
-  aahp config --timeout 15           Set default timeout to 15 minutes
-  aahp config --alert-webhook <url>  Set webhook for alerts
-  aahp config --alert-slack <url>    Set Slack webhook for alerts
-  aahp schedule --time 02:00         Register nightly scheduled job (cron or Task Scheduler)
+  aahp metrics --repo openclaw-ops --days 7
+
+  aahp config --root "E:\\_Development"     Set root folder
+  aahp config --backend copilot              Save default backend
+  aahp config --api-key sk-ant-...           Save Anthropic API key
+  aahp config --timeout 15                   Set default timeout (minutes)
+  aahp config --alert-webhook <url>          Set webhook for alerts
+  aahp config --alert-slack <url>            Set Slack webhook for alerts
+
+  aahp schedule --time 02:00         Register nightly cron/Task Scheduler job
   aahp schedule --remove             Remove the scheduled job
-  aahp plan                          Plan new tasks for idle repos (AI-generated NEXT_ACTIONS.md)
-  aahp plan --all --yes              Plan ALL idle repos without prompts
-  aahp overnight --yes               Full autonomous loop: plan + run + commit/push (8h default)
-  aahp overnight --yes --hours 0     Run forever until Ctrl+C
-  aahp overnight --yes --local       Include local-only repos (no GitHub remote)
+
+Log locations:
+  repoPath/.ai/logs/YYYY-MM-DD.log          per-repo agent run log (auto-gitignored)
+  rootDir/.ai/logs/overnight-YYYY-MM-DD.log overnight loop log
+  ~/.aahp/logs/                             fallback (legacy) log location
+  ~/.aahp/metrics.jsonl                     run metrics (all repos, all time)
 `)
 
 // ── Default: guided wizard when no command given ──────────────────────────────
