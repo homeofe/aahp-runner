@@ -26,11 +26,16 @@ function readLiveSessions(): Array<{ repoPath: string; repoName: string; taskId:
 }
 
 /** Read last line from today's agent log for a repo */
-function getLastLogLine(repoName: string): string {
+function getLastLogLine(repoName: string, repoPath?: string): string {
   try {
     const stamp = new Date().toISOString().slice(0, 10)
-    const logPath = path.join(os.homedir(), '.aahp', 'logs', `${repoName}-${stamp}.log`)
-    if (!fs.existsSync(logPath)) return ''
+    // Prefer per-repo .ai/logs/ first, fall back to ~/.aahp/logs/
+    const candidates = repoPath
+      ? [path.join(repoPath, '.ai', 'logs', `${stamp}.log`),
+         path.join(os.homedir(), '.aahp', 'logs', `${repoName}-${stamp}.log`)]
+      : [path.join(os.homedir(), '.aahp', 'logs', `${repoName}-${stamp}.log`)]
+    const logPath = candidates.find(p => fs.existsSync(p))
+    if (!logPath) return ''
     const content = fs.readFileSync(logPath, 'utf8')
     const lines = content.split('\n').filter(l => l.trim() && !l.startsWith('='))
     const last = lines[lines.length - 1] ?? ''
@@ -226,7 +231,7 @@ program
           taskTitle: top?.[1].title ?? '',
           state: 'queued' as const,
           lastLine: '',
-          logFile: agentLogPath(p.name),
+          logFile: agentLogPath(p.name, p.repoPath),
           committed: false,
         }
       })
@@ -419,7 +424,7 @@ program
           const followStatuses: AgentStatus[] = nextRound.map(p => {
             const top = getTopTask(p)
             return { repo: p.name, taskId: top?.[0] ?? '?', taskTitle: top?.[1]?.title ?? '',
-              state: 'queued' as const, lastLine: '', logFile: agentLogPath(p.name), committed: false }
+              state: 'queued' as const, lastLine: '', logFile: agentLogPath(p.name, p.repoPath), committed: false }
           })
           const followBoard = new StatusBoard(followStatuses)
           followBoard.start()
@@ -623,40 +628,72 @@ program
   .description('Show or tail the latest log for an agent. Omit repo to list all logs.')
   .option('-f, --follow', 'Stream log in real-time (like tail -f)')
   .option('-n, --lines <n>', 'Show last N lines', '40')
-  .action(async (repo: string | undefined, opts: { follow: boolean; lines: string }) => {
+  .option('-r, --root <path>', 'Root development folder (for per-repo .ai/logs/ scan)', DEFAULT_ROOT)
+  .action(async (repo: string | undefined, opts: { follow: boolean; lines: string; root: string }) => {
+    const config = loadConfig()
+    const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
+
+    // Collect log files from both per-repo .ai/logs/ and global ~/.aahp/logs/
+    interface LogEntry { name: string; logPath: string; mtime: number; size: number }
+    const allLogs: LogEntry[] = []
+
+    // Per-repo: scan rootDir for repos with .ai/logs/
+    try {
+      for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue
+        const repoLogDir = path.join(rootDir, entry.name, '.ai', 'logs')
+        if (!fs.existsSync(repoLogDir)) continue
+        for (const f of fs.readdirSync(repoLogDir).filter(f => f.endsWith('.log'))) {
+          const logPath = path.join(repoLogDir, f)
+          const stat = fs.statSync(logPath)
+          allLogs.push({ name: entry.name, logPath, mtime: stat.mtimeMs, size: stat.size })
+        }
+      }
+    } catch { /* ignore */ }
+
+    // Global fallback: ~/.aahp/logs/
     fs.mkdirSync(LOG_DIR, { recursive: true })
+    for (const f of fs.readdirSync(LOG_DIR).filter(f => f.endsWith('.log'))) {
+      const logPath = path.join(LOG_DIR, f)
+      const stat = fs.statSync(logPath)
+      const name = f.replace(/-\d{4}-\d{2}-\d{2}\.log$/, '').replace(/-plan\.log$/, '').replace(/\.log$/, '')
+      allLogs.push({ name, logPath, mtime: stat.mtimeMs, size: stat.size })
+    }
+
+    // Sort newest first
+    allLogs.sort((a, b) => b.mtime - a.mtime)
 
     if (!repo) {
-      // List all log files
-      const files = fs.readdirSync(LOG_DIR).filter(f => f.endsWith('.log')).sort().reverse()
-      if (files.length === 0) {
-        console.log(chalk.gray(`No logs yet in ${LOG_DIR}`))
-        console.log(chalk.gray('Logs are written when agents run via: aahp run --all --yes'))
+      if (allLogs.length === 0) {
+        console.log(chalk.gray('No logs yet. Logs are written when agents run via: aahp run --all --yes'))
         return
       }
-      console.log(chalk.bold(`\n📋 Agent logs in ${LOG_DIR}\n`))
-      for (const f of files) {
-        const stat = fs.statSync(`${LOG_DIR}/${f}`)
-        const size = (stat.size / 1024).toFixed(1)
-        console.log(`  ${chalk.cyan(f.replace('.log', '').padEnd(40))} ${chalk.gray(`${size} KB`)}`)
+      console.log(chalk.bold(`\n📋 Agent logs\n`))
+      for (const l of allLogs) {
+        const size = (l.size / 1024).toFixed(1)
+        const rel = l.logPath.startsWith(rootDir)
+          ? path.relative(rootDir, l.logPath)
+          : l.logPath
+        console.log(`  ${chalk.cyan(l.name.padEnd(32))} ${chalk.gray(`${rel}  ${size} KB`)}`)
       }
       console.log(chalk.gray(`\n  aahp logs <repo>        show last 40 lines`))
       console.log(chalk.gray(`  aahp logs <repo> -f     stream live`))
       return
     }
 
-    // Find the latest log for this repo
-    const files = fs.readdirSync(LOG_DIR)
-      .filter(f => f.startsWith(repo) && f.endsWith('.log'))
-      .sort().reverse()
+    // Find the latest log for this repo (check .ai/logs/ first, then global fallback)
+    const matches = allLogs
+      .filter(l => l.name === repo || l.name.includes(repo))
+      .sort((a, b) => b.mtime - a.mtime)
 
-    if (files.length === 0) {
+    if (matches.length === 0) {
       console.log(chalk.yellow(`No log found for "${repo}"`))
-      console.log(chalk.gray(`Available: ${fs.readdirSync(LOG_DIR).filter(f => f.endsWith('.log')).map(f => f.replace(/-\d{4}-\d{2}-\d{2}\.log$/, '')).join(', ')}`))
+      const names = [...new Set(allLogs.map(l => l.name))]
+      console.log(chalk.gray(`Available: ${names.join(', ')}`))
       return
     }
 
-    const logPath = path.join(LOG_DIR, files[0]!)
+    const logPath = matches[0]!.logPath
     console.log(chalk.gray(`${logPath}\n`))
 
     if (opts.follow) {
@@ -1014,8 +1051,9 @@ program
     const apiKey   = config.apiKey ?? ''
 
     const stopAt = hours > 0 ? new Date(Date.now() + hours * 60 * 60 * 1000) : null
-    const logFile = path.join(os.homedir(), '.aahp', `overnight-${new Date().toISOString().slice(0, 10)}.log`)
-    fs.mkdirSync(path.dirname(logFile), { recursive: true })
+    const logDir = path.join(rootDir, '.ai', 'logs')
+    fs.mkdirSync(logDir, { recursive: true })
+    const logFile = path.join(logDir, `overnight-${new Date().toISOString().slice(0, 10)}.log`)
 
     const log = (msg: string) => {
       const line = `[${new Date().toLocaleTimeString()}] ${msg}`
@@ -1120,7 +1158,7 @@ program
 
         const statuses: AgentStatus[] = runTasks.map(({ project: p, taskId, task }) => ({
           repo: p.name, taskId, taskTitle: task.title,
-          state: 'queued' as const, lastLine: '', logFile: agentLogPath(p.name), committed: false,
+          state: 'queued' as const, lastLine: '', logFile: agentLogPath(p.name, p.repoPath), committed: false,
         }))
         const board = new StatusBoard(statuses)
         board.start()

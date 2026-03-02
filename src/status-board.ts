@@ -28,10 +28,33 @@ export interface AgentStatus {
 
 export const LOG_DIR = path.join(os.homedir(), '.aahp', 'logs')
 
-export function agentLogPath(repo: string): string {
+/**
+ * Return the log file path for an agent run.
+ * If repoPath is given, logs go into `repoPath/.ai/logs/YYYY-MM-DD.log`
+ * and `.ai/logs/` is added to the repo's .gitignore on first use.
+ * Falls back to `~/.aahp/logs/<repo>-YYYY-MM-DD.log` for workspace-level logs.
+ */
+export function agentLogPath(repo: string, repoPath?: string): string {
   const stamp = new Date().toISOString().slice(0, 10)
+  if (repoPath) {
+    const logDir = path.join(repoPath, '.ai', 'logs')
+    fs.mkdirSync(logDir, { recursive: true })
+    ensureGitignore(repoPath, '.ai/logs/')
+    return path.join(logDir, `${stamp}.log`)
+  }
   fs.mkdirSync(LOG_DIR, { recursive: true })
   return path.join(LOG_DIR, `${repo}-${stamp}.log`)
+}
+
+/** Ensure a pattern is present in repoPath/.gitignore (silent on error). */
+function ensureGitignore(repoPath: string, pattern: string): void {
+  try {
+    const giPath = path.join(repoPath, '.gitignore')
+    const content = fs.existsSync(giPath) ? fs.readFileSync(giPath, 'utf8') : ''
+    if (!content.split('\n').some(l => l.trim() === pattern)) {
+      fs.appendFileSync(giPath, (content.endsWith('\n') || content === '' ? '' : '\n') + pattern + '\n', 'utf8')
+    }
+  } catch { /* best-effort */ }
 }
 
 /** Write a line to the agent's log file (silent on error) */

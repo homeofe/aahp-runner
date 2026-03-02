@@ -106,7 +106,7 @@ async function runViaClaudeCLI(
   onLog(`   Backend: claude CLI (Claude Code - no API key needed)`)
   onLog(`   Timeout: ${Math.round(timeoutMs / 60000)}m`)
 
-  const logFile = agentLogPath(project.name)
+  const logFile = agentLogPath(project.name, project.repoPath)
   writeLog(logFile, `=== AAHP [${taskId}] ${task.title}\n=== ${new Date().toISOString()}\n${'='.repeat(60)}\n`)
 
   // Record HEAD before spawn for reliable commit detection
@@ -238,7 +238,7 @@ async function runViaSDK(
   let timedOut = false
   const deadline = Date.now() + timeoutMs
 
-  const logFile = agentLogPath(project.name)
+  const logFile = agentLogPath(project.name, project.repoPath)
   writeLog(logFile, `=== AAHP SDK [${taskId}] ${task.title}\n=== ${new Date().toISOString()}\n${'='.repeat(60)}\n`)
 
   onLog(`\nSDK agent starting on [${taskId}]: ${task.title}`)
@@ -313,7 +313,7 @@ async function runViaCopilot(
   timeoutMs: number = 10 * 60 * 1000
 ): Promise<AgentResult> {
   const systemPrompt = buildSystemPrompt(project, taskId, task)
-  const logFile = agentLogPath(project.name)
+  const logFile = agentLogPath(project.name, project.repoPath)
   writeLog(logFile, `=== AAHP Copilot [${taskId}] ${task.title}\n=== ${new Date().toISOString()}\n${'='.repeat(60)}\n`)
 
   const MAX_TURNS = 30
@@ -526,7 +526,7 @@ export async function runPlanningAgent(
   const { backend, copilotToken } = await resolveBackend(apiKey, explicitBackend)
   const timeoutMs = timeoutMinutes * 60 * 1000
   const prompt = buildPlanningPrompt(project)
-  const logFile = agentLogPath(`${project.name}-plan`)
+  const logFile = agentLogPath(`${project.name}-plan`, project.repoPath)
 
   writeLog(logFile, `=== AAHP Planning [${project.name}]\n=== ${new Date().toISOString()}\n${'='.repeat(60)}\n`)
 
