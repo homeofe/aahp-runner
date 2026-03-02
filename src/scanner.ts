@@ -71,6 +71,18 @@ function normalizeTitle(title: string): string {
     .trim()
 }
 
+/** Jaccard word-overlap similarity between two task titles (after normalization).
+ *  Returns 0..1; >= 0.55 is a good threshold for fuzzy matching. */
+function titleSimilarity(a: string, b: string): number {
+  const words = (s: string) => new Set(normalizeTitle(s).split(' ').filter(w => w.length >= 3))
+  const wa = words(a)
+  const wb = words(b)
+  if (wa.size === 0 || wb.size === 0) return 0
+  const intersection = [...wa].filter(w => wb.has(w)).length
+  const union = new Set([...wa, ...wb]).size
+  return intersection / union
+}
+
 /** Safely extract issue number from a github_issue value that may be a legacy URL string. */
 function extractIssueNumber(raw: unknown): number | undefined {
   if (typeof raw === 'number' && raw > 0) return raw
@@ -105,7 +117,8 @@ function ensureLabel(repo: string, name: string, color: string, cwd: string): vo
 export function createMissingGitHubIssues(
   repoPath: string,
   handoffDir: string,
-  manifest: AahpManifest
+  manifest: AahpManifest,
+  onLog?: (msg: string) => void
 ): AahpManifest {
   const repo = detectGitHubRepo(repoPath)
   if (!repo) return manifest
@@ -117,6 +130,7 @@ export function createMissingGitHubIssues(
   ) as Array<[string, AahpTask]>
 
   if (toCreate.length === 0) return manifest
+  onLog?.(`[SYNC] creating ${toCreate.length} missing GitHub issue(s) in ${repo}`)
 
   // Ensure all needed labels exist before creating issues
   const labelsNeeded = new Set(toCreate.flatMap(([, t]) => [t.priority, t.status]))
@@ -163,7 +177,10 @@ export function createMissingGitHubIssues(
           task.github_issue = parseInt(numMatch[1], 10)
           task.github_repo = repo
           changed = true
+          onLog?.(`[SYNC] created issue #${task.github_issue} for ${taskId}: "${task.title}"`)
         }
+      } else if (result.status !== 0) {
+        onLog?.(`[SYNC] WARN could not create issue for ${taskId} (gh exit ${result.status ?? 'null'})`)
       }
     } catch { /* best-effort */ } finally {
       try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
@@ -183,7 +200,8 @@ export function createMissingGitHubIssues(
 export function fetchAndImportGitHubIssues(
   repoPath: string,
   handoffDir: string,
-  manifest: AahpManifest
+  manifest: AahpManifest,
+  onLog?: (msg: string) => void
 ): AahpManifest {
   const repo = detectGitHubRepo(repoPath)
   if (!repo) return manifest
@@ -201,6 +219,8 @@ export function fetchAndImportGitHubIssues(
   }
 
   if (!issues.length) return manifest
+  const openCount = issues.filter(i => i.state === 'open').length
+  onLog?.(`[SYNC] ${repo}: ${issues.length} issues (${openCount} open)`)
 
   const tasks = manifest.tasks ?? {}
   let nextId = manifest.next_task_id ?? (Object.keys(tasks).length + 1)
@@ -252,11 +272,13 @@ export function fetchAndImportGitHubIssues(
         const taskStatus = task.status as string
         if (issue.state === 'closed' && taskStatus !== 'done' && taskStatus !== 'cancelled') {
           // Issue closed - mark done or cancelled depending on stateReason
+          onLog?.(`[SYNC] ${linkedId} ${taskStatus}→${githubStatus} (issue #${issue.number} closed)`)
           task.status = githubStatus  // 'done' or 'cancelled'
           if (!task.completed) task.completed = new Date().toISOString()
           changed = true
         } else if (issue.state === 'open' && (taskStatus === 'done' || taskStatus === 'completed' || taskStatus === 'cancelled')) {
           // Issue re-opened but task was marked done/cancelled - restore to ready
+          onLog?.(`[SYNC] ${linkedId} ${taskStatus}→${githubStatus} (issue #${issue.number} reopened)`)
           task.status = githubStatus
           delete task.completed
           changed = true
@@ -278,6 +300,7 @@ export function fetchAndImportGitHubIssues(
         existingTask.github_issue = issue.number
         existingTask.github_repo = repo
         taskChanged = true
+        onLog?.(`[SYNC] issue #${issue.number} → ${existingTaskId} (T-ID match)`)
       }
 
       const shouldSyncStatus = githubStatus === 'done' || existingTask.status !== 'in_progress'
@@ -302,6 +325,31 @@ export function fetchAndImportGitHubIssues(
       if (shouldSyncStatus && existingTask.status !== githubStatus) existingTask.status = githubStatus
       titleToTaskId.delete(normalizedIssueTitle)
       importedIssueNumbers.add(issue.number)
+      onLog?.(`[SYNC] issue #${issue.number} → ${titleMatchId} (title match)`)
+      changed = true
+      continue
+    }
+
+    // 3. Fuzzy fallback: word-overlap similarity >= 0.55 (handles slightly different titles)
+    const FUZZY_THRESHOLD = 0.55
+    let fuzzyMatchId: string | undefined
+    let fuzzyBestScore = 0
+    for (const [ntitle, ftaskId] of titleToTaskId) {
+      const score = titleSimilarity(normalizedIssueTitle, ntitle)
+      if (score > fuzzyBestScore && score >= FUZZY_THRESHOLD) {
+        fuzzyBestScore = score
+        fuzzyMatchId = ftaskId
+      }
+    }
+    if (fuzzyMatchId && tasks[fuzzyMatchId]) {
+      const existingTask = tasks[fuzzyMatchId]!
+      existingTask.github_issue = issue.number
+      existingTask.github_repo = repo
+      const shouldSyncStatus = githubStatus === 'done' || existingTask.status !== 'in_progress'
+      if (shouldSyncStatus && existingTask.status !== githubStatus) existingTask.status = githubStatus
+      titleToTaskId.delete(normalizeTitle(existingTask.title))
+      importedIssueNumbers.add(issue.number)
+      onLog?.(`[SYNC] issue #${issue.number} → ${fuzzyMatchId} (fuzzy ${Math.round(fuzzyBestScore * 100)}%: "${issue.title}")`)
       changed = true
       continue
     }
@@ -318,6 +366,7 @@ export function fetchAndImportGitHubIssues(
       github_repo: repo,
     }
     nextId++
+    onLog?.(`[SYNC] issue #${issue.number} imported as ${taskId}: "${issue.title}"`)
     changed = true
   }
 
@@ -385,11 +434,6 @@ function parseNextActionsBasic(markdown: string): Array<{ section: string; taskI
   return items
 }
 
-/** Normalize a title for comparison (same as in aahp-reader). */
-function normTitle(title: string): string {
-  return title.toLowerCase().replace(/^\[T-\d+\]\s*/i, '').replace(/\(issue #\d+\)/gi, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
-}
-
 /** Ensure every actionable NEXT_ACTIONS item has a MANIFEST task entry.
  *  Agents using pure AAHP protocol may write NEXT_ACTIONS.md without touching
  *  MANIFEST - this bridges that gap so createMissingGitHubIssues can then create
@@ -411,11 +455,13 @@ export function syncNextActionsToManifest(
   const tasks = manifest.tasks ?? {}
   let nextId = manifest.next_task_id ?? (Object.keys(tasks).length + 1)
   let changed = false
-  const existingTitles = new Set(Object.values(tasks).map(t => normTitle(t.title)))
+  const existingTitles = new Set(Object.values(tasks).map(t => normalizeTitle(t.title)))
 
   for (const item of actionable) {
     if (item.taskId && tasks[item.taskId]) continue
-    if (existingTitles.has(normTitle(item.title))) continue
+    if (existingTitles.has(normalizeTitle(item.title))) continue
+    // Fuzzy dedup: skip if a very similar task already exists (>= 65% word overlap)
+    if (Object.values(tasks).some(t => titleSimilarity(item.title, t.title) >= 0.65)) continue
 
     while (tasks[`T-${String(nextId).padStart(3, '0')}`]) nextId++
     const taskId = item.taskId ?? `T-${String(nextId).padStart(3, '0')}`
@@ -427,7 +473,7 @@ export function syncNextActionsToManifest(
       item.priority === 'high' ? 'high' : item.priority === 'low' ? 'low' : 'medium'
 
     tasks[taskId] = { title: item.title.trim(), status, priority, depends_on: [], created: new Date().toISOString() }
-    existingTitles.add(normTitle(item.title))
+    existingTitles.add(normalizeTitle(item.title))
     nextId++
     changed = true
   }
@@ -463,10 +509,20 @@ export function scanProjects(rootDir: string): AahpProject[] {
       continue
     }
 
+    const _logDate = new Date().toISOString().slice(0, 10)
+    const _logDir = path.join(repoPath, '.ai', 'logs')
+    const _logFile = path.join(_logDir, `${_logDate}.log`)
+    const repoLog = (msg: string) => {
+      try {
+        fs.mkdirSync(_logDir, { recursive: true })
+        fs.appendFileSync(_logFile, `${new Date().toISOString().slice(11, 19)} ${msg}\n`)
+      } catch { /* best-effort */ }
+    }
+
     // Sync GitHub issues → MANIFEST, ensure NEXT_ACTIONS items have MANIFEST entries, then push unlinked tasks → GitHub
-    manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest)
+    manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest, repoLog)
     manifest = syncNextActionsToManifest(repoPath, handoffDir, manifest)
-    manifest = createMissingGitHubIssues(repoPath, handoffDir, manifest)
+    manifest = createMissingGitHubIssues(repoPath, handoffDir, manifest, repoLog)
 
     const tasks = manifest.tasks ?? {}
     const readyTasks = Object.entries(tasks).filter(
@@ -515,9 +571,19 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
     return undefined
   }
 
-  manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest)
+  const _logDate = new Date().toISOString().slice(0, 10)
+  const _logDir = path.join(repoPath, '.ai', 'logs')
+  const _logFile = path.join(_logDir, `${_logDate}.log`)
+  const repoLog = (msg: string) => {
+    try {
+      fs.mkdirSync(_logDir, { recursive: true })
+      fs.appendFileSync(_logFile, `${new Date().toISOString().slice(11, 19)} ${msg}\n`)
+    } catch { /* best-effort */ }
+  }
+
+  manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest, repoLog)
   manifest = syncNextActionsToManifest(repoPath, handoffDir, manifest)
-  manifest = createMissingGitHubIssues(repoPath, handoffDir, manifest)
+  manifest = createMissingGitHubIssues(repoPath, handoffDir, manifest, repoLog)
 
   const tasks = manifest.tasks ?? {}
   const readyTasks = Object.entries(tasks).filter(

@@ -107,7 +107,12 @@ async function runViaClaudeCLI(
   onLog(`   Timeout: ${Math.round(timeoutMs / 60000)}m`)
 
   const logFile = agentLogPath(project.name, project.repoPath)
-  writeLog(logFile, `=== AAHP [${taskId}] ${task.title}\n=== ${new Date().toISOString()}\n${'='.repeat(60)}\n`)
+  const ts = () => new Date().toISOString().slice(11, 19)
+  const startMs = Date.now()
+  writeLog(logFile, `[${ts()}] AAHP START  ${taskId} · ${task.title}\n`)
+  writeLog(logFile, `[${ts()}] BACKEND     claude-cli · timeout ${Math.round(timeoutMs / 60000)}m\n`)
+  if (task.github_issue) writeLog(logFile, `[${ts()}] ISSUE       #${task.github_issue} in ${task.github_repo}\n`)
+  writeLog(logFile, `${'─'.repeat(60)}\n`)
 
   // Record HEAD before spawn for reliable commit detection
   const headBefore = await getHead(project.repoPath)
@@ -180,6 +185,8 @@ async function runViaClaudeCLI(
     })
   })
 
+  writeLog(logFile, `\n${'─'.repeat(60)}\n`)
+
   // Reliable commit detection: compare HEAD before and after
   let committed = false
   try {
@@ -197,6 +204,8 @@ async function runViaClaudeCLI(
     markTaskDone(project, taskId, task, 1, 'claude-code')
     onLog(`\nMANIFEST.json updated - [${taskId}] marked done`)
   }
+
+  writeLog(logFile, `[${ts()}] AAHP ${committed ? 'DONE  ' : 'FAILED'}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
 
   return {
     success: committed,
@@ -239,7 +248,12 @@ async function runViaSDK(
   const deadline = Date.now() + timeoutMs
 
   const logFile = agentLogPath(project.name, project.repoPath)
-  writeLog(logFile, `=== AAHP SDK [${taskId}] ${task.title}\n=== ${new Date().toISOString()}\n${'='.repeat(60)}\n`)
+  const ts = () => new Date().toISOString().slice(11, 19)
+  const startMs = Date.now()
+  writeLog(logFile, `[${ts()}] AAHP START  ${taskId} · ${task.title}\n`)
+  writeLog(logFile, `[${ts()}] BACKEND     sdk · timeout ${Math.round(timeoutMs / 60000)}m\n`)
+  if (task.github_issue) writeLog(logFile, `[${ts()}] ISSUE       #${task.github_issue} in ${task.github_repo}\n`)
+  writeLog(logFile, `${'─'.repeat(60)}\n`)
 
   onLog(`\nSDK agent starting on [${taskId}]: ${task.title}`)
   onLog(`   Backend: Anthropic SDK (API key)`)
@@ -292,6 +306,9 @@ async function runViaSDK(
   }
   if (timedOut) onLog(`\nAgent was stopped due to timeout after ${turns} turns`)
 
+  writeLog(logFile, `\n${'─'.repeat(60)}\n`)
+  writeLog(logFile, `[${ts()}] AAHP ${committed ? 'DONE  ' : 'FAILED'}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
+
   return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile }
 }
 
@@ -314,11 +331,15 @@ async function runViaCopilot(
 ): Promise<AgentResult> {
   const systemPrompt = buildSystemPrompt(project, taskId, task)
   const logFile = agentLogPath(project.name, project.repoPath)
-  writeLog(logFile, `=== AAHP Copilot [${taskId}] ${task.title}\n=== ${new Date().toISOString()}\n${'='.repeat(60)}\n`)
-
   const MAX_TURNS = 30
   const COPILOT_ENDPOINT = 'https://api.githubcopilot.com/chat/completions'
   const MODEL = 'gpt-4o'
+  const ts = () => new Date().toISOString().slice(11, 19)
+  const startMs = Date.now()
+  writeLog(logFile, `[${ts()}] AAHP START  ${taskId} · ${task.title}\n`)
+  writeLog(logFile, `[${ts()}] BACKEND     copilot/${MODEL} · timeout ${Math.round(timeoutMs / 60000)}m\n`)
+  if (task.github_issue) writeLog(logFile, `[${ts()}] ISSUE       #${task.github_issue} in ${task.github_repo}\n`)
+  writeLog(logFile, `${'─'.repeat(60)}\n`)
 
   const openAITools = toOpenAITools()
 
@@ -444,6 +465,9 @@ async function runViaCopilot(
   }
   if (timedOut) onLog(`\nAgent was stopped due to timeout after ${turns} turns`)
 
+  writeLog(logFile, `\n${'─'.repeat(60)}\n`)
+  writeLog(logFile, `[${ts()}] AAHP ${committed ? 'DONE  ' : 'FAILED'}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
+
   return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile }
 }
 
@@ -528,7 +552,11 @@ export async function runPlanningAgent(
   const prompt = buildPlanningPrompt(project)
   const logFile = agentLogPath(`${project.name}-plan`, project.repoPath)
 
-  writeLog(logFile, `=== AAHP Planning [${project.name}]\n=== ${new Date().toISOString()}\n${'='.repeat(60)}\n`)
+  const ts = () => new Date().toISOString().slice(11, 19)
+  const startMs = Date.now()
+  writeLog(logFile, `[${ts()}] AAHP PLAN   ${project.name}\n`)
+  writeLog(logFile, `[${ts()}] BACKEND     ${backend} · timeout ${timeoutMinutes}m\n`)
+  writeLog(logFile, `${'─'.repeat(60)}\n`)
 
   onLog(`\n📐 Planning agent starting on ${project.name}`)
   onLog(`   Backend: ${backend}`)
@@ -616,6 +644,9 @@ export async function runPlanningAgent(
       onLog(`\nSDK planning error: ${(err as Error).message}`)
     }
   }
+
+  writeLog(logFile, `\n${'─'.repeat(60)}\n`)
+  writeLog(logFile, `[${ts()}] PLAN ${output.length > 100 ? 'DONE  ' : 'EMPTY '}  ${project.name} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
 
   const success = output.length > 100
   if (success) onLog(`\n✅ Planning complete for ${project.name}`)
