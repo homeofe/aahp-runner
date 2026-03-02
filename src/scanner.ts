@@ -14,7 +14,7 @@ interface GitHubIssue {
 }
 
 /** Detect owner/repo from git remote origin URL */
-function detectGitHubRepo(repoPath: string): string | null {
+export function detectGitHubRepo(repoPath: string): string | null {
   try {
     const url = execSync('git remote get-url origin', { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] })
       .toString().trim()
@@ -491,6 +491,7 @@ export function scanProjects(rootDir: string): AahpProject[] {
       activeTasks,
       blockedTasks,
       cancelledTasks,
+      isLocalOnly: !detectGitHubRepo(repoPath),
     })
   }
 
@@ -541,6 +542,7 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
     activeTasks,
     blockedTasks,
     cancelledTasks,
+    isLocalOnly: !detectGitHubRepo(repoPath),
   }
 }
 
@@ -620,4 +622,100 @@ export function buildSystemPrompt(project: AahpProject, taskId: string, task: Aa
 export function saveManifest(project: AahpProject, manifest: AahpManifest): void {
   const p = path.join(project.handoffDir, 'MANIFEST.json')
   fs.writeFileSync(p, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
+}
+
+/** Build a planning-mode prompt for generating new NEXT_ACTIONS.md tasks.
+ *  The planning agent reads the repo, writes NEXT_ACTIONS.md, and must NOT commit. */
+export function buildPlanningPrompt(project: AahpProject): string {
+  const m = project.manifest
+
+  const tryRead = (filePath: string, maxLen = 3000): string => {
+    try { return fs.readFileSync(filePath, 'utf8').slice(0, maxLen) } catch { return '' }
+  }
+
+  const readme   = tryRead(path.join(project.repoPath, 'README.md'))
+  const pkg      = tryRead(path.join(project.repoPath, 'package.json'), 1000)
+  const existing = tryRead(path.join(project.handoffDir, 'NEXT_ACTIONS.md'), 2000)
+
+  const doneTasks = Object.entries(m.tasks ?? {})
+    .filter(([, t]) => t.status === 'done')
+    .slice(-5)
+    .map(([id, t]) => `  ${id}: ${t.title}`)
+    .join('\n')
+
+  const nextId = `T-${String(m.next_task_id ?? 1).padStart(3, '0')}`
+
+  return [
+    `## AAHP Planning Mode — ${m.project}`,
+    `Phase: ${m.last_session.phase}`,
+    m.quick_context ? `\n### Project Context\n${m.quick_context}\n` : '',
+    readme          ? `### README (excerpt)\n${readme}\n` : '',
+    pkg             ? `### package.json\n${pkg}\n` : '',
+    doneTasks       ? `### Recently Completed Tasks\n${doneTasks}\n` : '',
+    existing        ? `### Existing NEXT_ACTIONS.md\n${existing}\n` : '',
+    `---`,
+    `You are a software project planner. Analyze this repository and produce a fresh task roadmap.`,
+    ``,
+    `## Instructions`,
+    `1. Read key files (source code, tests, config) to understand the project's current state`,
+    `2. Review recently completed tasks above to understand momentum and avoid duplicates`,
+    `3. Identify 3-5 concrete, actionable next steps for this project`,
+    `4. Write them to .ai/handoff/NEXT_ACTIONS.md using the AAHP v3 format shown below`,
+    `5. Do NOT write any code`,
+    `6. Do NOT run git commit or git push`,
+    `7. Only modify the file .ai/handoff/NEXT_ACTIONS.md`,
+    ``,
+    `## NEXT_ACTIONS.md Format`,
+    `\`\`\``,
+    `# NEXT_ACTIONS — {project}`,
+    ``,
+    `## ⚡ Ready - Work These Next`,
+    ``,
+    `### ${nextId}: Task Title Here`,
+    `- **Goal:** What this task achieves`,
+    `- **Context:** Why it matters now / current state`,
+    `- **What to do:** Step-by-step concrete actions`,
+    `- **Files:** Key files to read or modify`,
+    `- **Definition of Done:**`,
+    `  - [ ] Specific acceptance criterion`,
+    ``,
+    `## 🚫 Blocked`,
+    `(none)`,
+    ``,
+    `## ✅ Recently Completed`,
+    doneTasks || '(see MANIFEST.json)',
+    `\`\`\``,
+    ``,
+    `Task IDs start from ${nextId}. Use priority: high / medium / low in the task title suffix like: ### ${nextId}: Title [high]`,
+    ``,
+    `Work directory: ${project.repoPath}`,
+    `IMPORTANT: Write ONLY to .ai/handoff/NEXT_ACTIONS.md. Do not commit. Do not push.`,
+  ].filter(s => s !== undefined).join('\n')
+}
+
+export interface GitRepoInfo {
+  name: string
+  repoPath: string
+  hasManifest: boolean
+  isGitHub: boolean
+  githubRepo: string | null
+}
+
+/** Find ALL git repos in rootDir, whether or not they have AAHP MANIFEST.json */
+export function scanAllGitRepos(rootDir: string): GitRepoInfo[] {
+  const results: GitRepoInfo[] = []
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(rootDir, { withFileTypes: true })
+  } catch { return results }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const repoPath = path.join(rootDir, entry.name)
+    if (!fs.existsSync(path.join(repoPath, '.git'))) continue
+    const hasManifest = fs.existsSync(path.join(repoPath, '.ai', 'handoff', 'MANIFEST.json'))
+    const githubRepo = detectGitHubRepo(repoPath)
+    results.push({ name: entry.name, repoPath, hasManifest, isGitHub: !!githubRepo, githubRepo })
+  }
+  return results
 }

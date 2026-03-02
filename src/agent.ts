@@ -3,7 +3,7 @@ import { execSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { AahpProject, AahpTask, AahpManifest } from './types.js'
-import { buildSystemPrompt, saveManifest } from './scanner.js'
+import { buildSystemPrompt, buildPlanningPrompt, saveManifest } from './scanner.js'
 import { TOOL_DEFINITIONS, toOpenAITools, executeTool, runAsync } from './tools.js'
 import { agentLogPath, writeLog } from './status-board.js'
 import { ResourceMonitor, currentProcessSnapshot } from './resource-monitor.js'
@@ -502,4 +502,122 @@ export async function runAgent(
         '  Option 2: Sign in to GitHub CLI - gh auth login  (uses your Copilot subscription)\n' +
         '  Option 3: aahp config --api-key "sk-ant-..."  (Anthropic API key)'
   throw new Error(hint)
+}
+
+export interface PlanningResult {
+  success: boolean
+  output: string
+  logFile: string
+}
+
+/**
+ * Run a planning-only agent on a project.
+ * The agent analyzes the repo and writes NEXT_ACTIONS.md with new tasks.
+ * It does NOT execute code and does NOT commit. No task is marked done.
+ * Call scanProjectByPath() after this to pick up the new tasks.
+ */
+export async function runPlanningAgent(
+  project: AahpProject,
+  apiKey: string,
+  onLog: (msg: string) => void,
+  explicitBackend: 'auto' | 'claude' | 'copilot' | 'sdk' = 'auto',
+  timeoutMinutes: number = 5
+): Promise<PlanningResult> {
+  const { backend, copilotToken } = await resolveBackend(apiKey, explicitBackend)
+  const timeoutMs = timeoutMinutes * 60 * 1000
+  const prompt = buildPlanningPrompt(project)
+  const logFile = agentLogPath(`${project.name}-plan`)
+
+  writeLog(logFile, `=== AAHP Planning [${project.name}]\n=== ${new Date().toISOString()}\n${'='.repeat(60)}\n`)
+
+  onLog(`\n📐 Planning agent starting on ${project.name}`)
+  onLog(`   Backend: ${backend}`)
+  onLog(`   Timeout: ${timeoutMinutes}m`)
+
+  if (backend === 'none') {
+    const msg = 'No agent backend available for planning. Install Claude Code or run: gh auth login'
+    onLog(`\n❌ ${msg}`)
+    return { success: false, output: msg, logFile }
+  }
+
+  let output = ''
+
+  if (backend === 'claude-cli') {
+    const claudeCmd = process.platform === 'win32' ? 'claude.cmd' : 'claude'
+    await new Promise<void>((resolve) => {
+      const proc = spawn(
+        claudeCmd,
+        ['--print', '--allowedTools', 'Read,Write,Edit,Bash,Glob,Grep', '--output-format', 'text'],
+        { cwd: project.repoPath, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'] }
+      )
+      const timer = setTimeout(() => { proc.kill('SIGTERM') }, timeoutMs)
+      proc.stdin.write(prompt)
+      proc.stdin.end()
+      proc.stdout.on('data', (chunk: Buffer) => {
+        const text = chunk.toString()
+        output += text
+        writeLog(logFile, text)
+        onLog(text)
+      })
+      proc.stderr.on('data', (chunk: Buffer) => writeLog(logFile, chunk.toString()))
+      proc.on('close', () => { clearTimeout(timer); resolve() })
+      proc.on('error', (err) => { clearTimeout(timer); onLog(`spawn error: ${err.message}`); resolve() })
+    })
+  } else if (backend === 'copilot') {
+    // Copilot via GitHub API (same model as runViaCopilot but with planning prompt)
+    const { default: fetch } = await import('node-fetch')
+    const messages = [{ role: 'user', content: prompt }]
+    const MODEL = 'gpt-4o'
+    try {
+      const response = await fetch('https://api.githubcopilot.com/chat/completions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${copilotToken}`, 'Content-Type': 'application/json',
+          'Copilot-Integration-Id': 'vscode-chat', 'Editor-Version': 'vscode/1.95.3' },
+        body: JSON.stringify({ model: MODEL, messages, temperature: 0.2, max_tokens: 4000 }),
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      const data = await response.json() as { choices?: Array<{ message: { content: string } }> }
+      const text = data.choices?.[0]?.message?.content ?? ''
+      output = text
+      writeLog(logFile, text)
+      onLog(text)
+      // Write NEXT_ACTIONS.md from Copilot response (agent can't write files directly in SDK mode)
+      const naMatch = text.match(/```[\w]*\n(# NEXT_ACTIONS[\s\S]*?)```/)
+      if (naMatch?.[1]) {
+        const naPath = path.join(project.handoffDir, 'NEXT_ACTIONS.md')
+        fs.writeFileSync(naPath, naMatch[1].trim() + '\n', 'utf8')
+        onLog(`\n📝 NEXT_ACTIONS.md written from Copilot planning response`)
+      }
+    } catch (err) {
+      onLog(`\nCopilot planning error: ${(err as Error).message}`)
+    }
+  } else if (backend === 'sdk') {
+    const { default: Anthropic } = await import('@anthropic-ai/sdk')
+    const client = new Anthropic({ apiKey })
+    try {
+      const msg = await client.messages.create({
+        model: 'claude-opus-4-5',
+        max_tokens: 4000,
+        messages: [{ role: 'user', content: prompt }],
+      })
+      const text = msg.content.filter((b: { type: string }) => b.type === 'text')
+        .map((b: { type: string; text?: string }) => b.text ?? '').join('')
+      output = text
+      writeLog(logFile, text)
+      onLog(text)
+      // Extract and write NEXT_ACTIONS.md
+      const naMatch = text.match(/```[\w]*\n(# NEXT_ACTIONS[\s\S]*?)```/)
+      if (naMatch?.[1]) {
+        const naPath = path.join(project.handoffDir, 'NEXT_ACTIONS.md')
+        fs.writeFileSync(naPath, naMatch[1].trim() + '\n', 'utf8')
+        onLog(`\n📝 NEXT_ACTIONS.md written from SDK planning response`)
+      }
+    } catch (err) {
+      onLog(`\nSDK planning error: ${(err as Error).message}`)
+    }
+  }
+
+  const success = output.length > 100
+  if (success) onLog(`\n✅ Planning complete for ${project.name}`)
+  return { success, output, logFile }
 }

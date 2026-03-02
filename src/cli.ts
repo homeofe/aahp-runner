@@ -5,11 +5,11 @@ import * as path from 'path'
 import * as fs from 'fs'
 import os from 'os'
 import * as readline from 'readline'
-import { scanProjects, getTopTask } from './scanner.js'
-import { runAgent } from './agent.js'
+import { scanProjects, scanProjectByPath, scanAllGitRepos, getTopTask } from './scanner.js'
+import { runAgent, runPlanningAgent } from './agent.js'
 import { runAsync } from './tools.js'
 import { loadConfig, saveConfig, registerScheduler, unregisterScheduler } from './scheduler.js'
-import { StatusBoard, AgentStatus, LOG_DIR, agentLogPath } from './status-board.js'
+import { StatusBoard, AgentStatus, LOG_DIR, agentLogPath, writeLog } from './status-board.js'
 import { recordMetric, loadMetrics, summarizeMetrics, metricsFilePath, getAvgDuration } from './metrics-store.js'
 import { sendAlert } from './alerting.js'
 
@@ -802,6 +802,292 @@ program
     console.log()
   })
 
+// ── plan ──────────────────────────────────────────────────────────────────────
+program
+  .command('plan [project]')
+  .description('Run a planning agent on idle repos to generate new NEXT_ACTIONS.md tasks')
+  .option('-r, --root <path>', 'Root development folder', DEFAULT_ROOT)
+  .option('-a, --all', 'Plan ALL idle repos, not just the first one')
+  .option('-y, --yes', 'Skip confirmation prompts')
+  .option('--local', 'Include local-only repos (no GitHub remote)')
+  .option('--backend <backend>', 'Agent backend: auto | claude | copilot | sdk', 'auto')
+  .option('--timeout <minutes>', 'Planning timeout per repo in minutes', '5')
+  .action(async (project: string | undefined, opts: { root: string; all: boolean; yes: boolean; local: boolean; backend: string; timeout: string }) => {
+    const config = loadConfig()
+    const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
+    const backend = (opts.backend ?? config.backend ?? 'auto') as 'auto' | 'claude' | 'copilot' | 'sdk'
+    const timeoutMin = parseInt(opts.timeout, 10) || 5
+
+    const projects = scanProjects(rootDir)
+
+    // Filter target projects
+    let targets = project
+      ? projects.filter(p => p.name === project || p.repoPath.endsWith(project))
+      : projects.filter(p => p.readyTasks.length === 0 && p.activeTasks.length === 0)
+
+    // Handle local repos
+    const localRepos = targets.filter(p => p.isLocalOnly)
+    const ghRepos    = targets.filter(p => !p.isLocalOnly)
+
+    if (localRepos.length > 0 && !opts.local && !opts.yes) {
+      console.log(chalk.yellow(`\n⚠  ${localRepos.length} local-only repo(s) found (no GitHub remote):`))
+      for (const p of localRepos) console.log(chalk.gray(`   ${p.name}`))
+      const include = await promptYN('\nInclude local repos in planning? [y/N] ')
+      if (!include) targets = ghRepos
+    } else if (!opts.local) {
+      targets = ghRepos  // default: skip local repos unless --local
+    }
+
+    if (!opts.all && !project) targets = targets.slice(0, 1)
+
+    if (targets.length === 0) {
+      console.log(chalk.green('\n✅ No idle repos to plan for - all projects have ready tasks'))
+      return
+    }
+
+    console.log(chalk.bold(`\n📐 AAHP Planning — ${targets.length} repo(s)\n`))
+    for (const p of targets) {
+      console.log(chalk.gray(`  ${p.name} (${p.repoPath})`))
+    }
+
+    if (!opts.yes) {
+      const ok = await promptYN(`\nRun planning agent on ${targets.length} repo(s)? [y/N] `)
+      if (!ok) { console.log(chalk.gray('Cancelled.')); return }
+    }
+
+    const apiKey = config.apiKey ?? ''
+    let planned = 0
+
+    for (const p of targets) {
+      console.log(chalk.bold(`\n─── Planning: ${p.name} ───`))
+      try {
+        const result = await runPlanningAgent(p, apiKey, (msg) => process.stdout.write(msg), backend, timeoutMin)
+        if (result.success) {
+          // Re-scan to pick up new tasks from NEXT_ACTIONS.md → MANIFEST → GitHub issues
+          const updated = scanProjectByPath(p.repoPath)
+          const newTasks = (updated?.readyTasks.length ?? 0)
+          console.log(chalk.green(`\n✅ ${p.name}: planning done — ${newTasks} ready task(s) created`))
+          planned++
+        } else {
+          console.log(chalk.yellow(`\n⚠  ${p.name}: planning produced no output`))
+        }
+      } catch (err) {
+        console.log(chalk.red(`\n❌ ${p.name}: planning failed — ${(err as Error).message}`))
+      }
+    }
+
+    console.log(chalk.bold(`\n📐 Planning complete: ${planned}/${targets.length} repos updated`))
+    console.log(chalk.gray('  Run: aahp run --all --yes   to execute the new tasks'))
+    console.log()
+  })
+
+// ── overnight ─────────────────────────────────────────────────────────────────
+program
+  .command('overnight')
+  .description('Full autonomous loop: plan idle repos, run all agents, commit+push. Repeats until --hours expires.')
+  .option('-r, --root <path>', 'Root development folder', DEFAULT_ROOT)
+  .option('-y, --yes', 'Skip all confirmation prompts')
+  .option('--hours <n>', 'Stop after N hours (0 = run forever)', '8')
+  .option('--limit <n>', 'Max concurrent agents per cycle', '5')
+  .option('--pause <n>', 'Minutes to pause between cycles (default: 0)', '0')
+  .option('--local', 'Include local-only repos (no GitHub remote)')
+  .option('--backend <backend>', 'Agent backend: auto | claude | copilot | sdk', 'auto')
+  .option('--plan-timeout <minutes>', 'Planning timeout per repo in minutes', '5')
+  .option('--run-timeout <minutes>', 'Per-agent execution timeout in minutes', '10')
+  .action(async (opts: {
+    root: string; yes: boolean; hours: string; limit: string; pause: string;
+    local: boolean; backend: string; planTimeout: string; runTimeout: string
+  }) => {
+    const config   = loadConfig()
+    const rootDir  = opts.root ?? config.rootDir ?? DEFAULT_ROOT
+    const backend  = (opts.backend ?? config.backend ?? 'auto') as 'auto' | 'claude' | 'copilot' | 'sdk'
+    const hours    = parseFloat(opts.hours) || 8
+    const maxLimit = parseInt(opts.limit, 10) || 5
+    const pauseMin = parseInt(opts.pause, 10) || 0
+    const planTout = parseInt(opts.planTimeout, 10) || 5
+    const runTout  = parseInt(opts.runTimeout, 10) || (config.timeoutMinutes ?? 10)
+    const apiKey   = config.apiKey ?? ''
+
+    const stopAt = hours > 0 ? new Date(Date.now() + hours * 60 * 60 * 1000) : null
+    const logFile = path.join(os.homedir(), '.aahp', `overnight-${new Date().toISOString().slice(0, 10)}.log`)
+    fs.mkdirSync(path.dirname(logFile), { recursive: true })
+
+    const log = (msg: string) => {
+      const line = `[${new Date().toLocaleTimeString()}] ${msg}`
+      console.log(line)
+      fs.appendFileSync(logFile, line + '\n', 'utf8')
+    }
+
+    // Decide on local repos once at start
+    let includeLocal = opts.local
+    if (!includeLocal && !opts.yes) {
+      const allRepos = scanAllGitRepos(rootDir)
+      const localCount = allRepos.filter(r => !r.isGitHub && r.hasManifest).length
+      if (localCount > 0) {
+        const names = allRepos.filter(r => !r.isGitHub && r.hasManifest).map(r => r.name)
+        console.log(chalk.yellow(`\n⚠  ${localCount} local-only repo(s) found: ${names.join(', ')}`))
+        includeLocal = await promptYN('Include local repos in overnight run? [y/N] ')
+      }
+    }
+
+    log('════════════════════════════════════════════════')
+    log('  AAHP Overnight — autonomous loop starting')
+    log(`  Stop at  : ${stopAt ? stopAt.toLocaleTimeString() : 'never (Ctrl+C to stop)'}`)
+    log(`  Limit    : ${maxLimit} agents/cycle`)
+    log(`  Pause    : ${pauseMin > 0 ? pauseMin + 'min between cycles' : 'none — continuous loop'}`)
+    log(`  Backend  : ${backend}`)
+    log(`  Root     : ${rootDir}`)
+    log(`  Log      : ${logFile}`)
+    log('════════════════════════════════════════════════')
+
+    let cycle = 0
+    let totalPlanned = 0
+    let totalRuns = 0
+    let totalCommits = 0
+
+    // Helper: commit+push all dirty repos
+    const commitAll = async (): Promise<number> => {
+      const { execSync: exec } = await import('child_process')
+      let n = 0
+      const entries = fs.readdirSync(rootDir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        const d = path.join(rootDir, entry.name)
+        if (!fs.existsSync(path.join(d, '.git'))) continue
+        try {
+          const dirty = exec('git status --porcelain', { cwd: d, stdio: 'pipe' }).toString().trim()
+          if (!dirty) continue
+          exec('git add -A', { cwd: d, stdio: 'pipe' })
+          exec(`git commit -m "chore: overnight agent run ${new Date().toISOString().slice(0, 16)}\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"`, { cwd: d, stdio: 'pipe' })
+          try { exec('git push', { cwd: d, stdio: 'pipe' }) } catch { /* push failure is non-fatal */ }
+          log(`  ✅ ${entry.name} committed + pushed`)
+          n++
+        } catch { /* repo may have nothing to commit */ }
+      }
+      return n
+    }
+
+    while (!stopAt || new Date() < stopAt) {
+      cycle++
+      const remaining = stopAt
+        ? ` (${Math.round((stopAt.getTime() - Date.now()) / 60000)}min left)`
+        : ''
+      log('')
+      log(`━━━ CYCLE ${cycle}${remaining} ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+
+      // ── Phase 1: plan idle repos ───────────────────────────────────────────
+      const projects = scanProjects(rootDir)
+      const idle = projects.filter(p => {
+        if (!includeLocal && p.isLocalOnly) return false
+        return p.readyTasks.length === 0 && p.activeTasks.length === 0
+      })
+
+      if (idle.length > 0) {
+        log(`  📐 Planning ${idle.length} idle repo(s)...`)
+        for (const p of idle) {
+          try {
+            log(`     Planning: ${p.name}`)
+            const result = await runPlanningAgent(p, apiKey, (msg) => fs.appendFileSync(logFile, msg, 'utf8'), backend, planTout)
+            if (result.success) {
+              scanProjectByPath(p.repoPath)  // sync new tasks → MANIFEST → GH issues
+              log(`     ✅ ${p.name}: planned`)
+              totalPlanned++
+            }
+          } catch (err) {
+            log(`     ❌ ${p.name}: planning failed — ${(err as Error).message}`)
+          }
+        }
+      }
+
+      // ── Phase 2: run agents on actionable tasks ────────────────────────────
+      const fresh = scanProjects(rootDir).filter(p => {
+        if (!includeLocal && p.isLocalOnly) return false
+        return p.readyTasks.length > 0 || p.activeTasks.length > 0
+      })
+
+      if (fresh.length > 0) {
+        log(`  🤖 Running agents on ${fresh.length} repo(s) (limit ${maxLimit})...`)
+
+        const runTasks = fresh.flatMap(p => {
+          const top = getTopTask(p)
+          return top ? [{ project: p, taskId: top[0], task: top[1] }] : []
+        })
+
+        const statuses: AgentStatus[] = runTasks.map(({ project: p, taskId, task }) => ({
+          repo: p.name, taskId, taskTitle: task.title,
+          state: 'queued' as const, lastLine: '', logFile: agentLogPath(p.name), committed: false,
+        }))
+        const board = new StatusBoard(statuses)
+        board.start()
+        const ticker = setInterval(() => board.refresh(), 1000)
+
+        await runWithLimit(runTasks, maxLimit, async ({ project: p, taskId, task }) => {
+          const st = statuses.find(s => s.repo === p.name)!
+          st.state = 'running'
+          st.startedAt = new Date()
+          board.refresh()
+          try {
+            const result = await runAgent(p, taskId, task, apiKey, msg => {
+              const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
+              if (line) st.lastLine = line.trim()
+              board.refresh()
+            }, backend, runTout)
+            st.state = result.committed ? 'done' : 'failed'
+            st.committed = result.committed
+            st.finishedAt = new Date()
+            st.lastLine = result.committed ? 'committed' : 'no commit detected'
+            board.refresh()
+            log(`     ${result.committed ? '✅' : '⚠ '} ${p.name} [${taskId}]: ${result.committed ? 'committed' : 'no commit'}`)
+            totalRuns++
+            await recordMetric({
+              timestamp: new Date().toISOString(), repo: p.name, taskId, taskTitle: task.title,
+              backend, durationMs: (st.finishedAt?.getTime() ?? Date.now()) - (st.startedAt?.getTime() ?? Date.now()),
+              turns: result.turns, success: result.committed, committed: result.committed,
+            })
+          } catch (err) {
+            st.state = 'failed'
+            st.finishedAt = new Date()
+            st.lastLine = String(err).slice(0, 60)
+            board.refresh()
+            log(`     ❌ ${p.name} [${taskId}]: ${(err as Error).message}`)
+          }
+        })
+
+        clearInterval(ticker)
+        board.finish()
+      } else {
+        log('  💤 No actionable tasks — all repos idle or planning failed')
+      }
+
+      // ── Phase 3: commit + push ─────────────────────────────────────────────
+      log('  💾 Committing all changes...')
+      const n = await commitAll()
+      totalCommits += n
+      log(`  ${n} repo(s) committed  |  total: ${totalCommits}`)
+
+      // ── Check time limit ───────────────────────────────────────────────────
+      if (stopAt && new Date() >= stopAt) break
+
+      // ── Optional pause ─────────────────────────────────────────────────────
+      if (pauseMin > 0) {
+        const until = Date.now() + pauseMin * 60 * 1000
+        log(`  ⏸  Pausing ${pauseMin}min before next cycle...`)
+        while (Date.now() < until) await new Promise(r => setTimeout(r, 30_000))
+      }
+    }
+
+    log('')
+    log('════════════════════════════════════════════════')
+    log('  AAHP Overnight — FINISHED')
+    log(`  Cycles : ${cycle}`)
+    log(`  Planned: ${totalPlanned} repos`)
+    log(`  Runs   : ${totalRuns} agents`)
+    log(`  Commits: ${totalCommits} repos`)
+    log(`  Log    : ${logFile}`)
+    log('════════════════════════════════════════════════')
+    console.log()
+  })
+
 program
   .name('aahp')
   .description('Autonomous AAHP agent runner - spawns Claude or Copilot agents to work through project tasks')
@@ -837,6 +1123,11 @@ Examples:
   aahp config --alert-slack <url>    Set Slack webhook for alerts
   aahp schedule --time 02:00         Register nightly scheduled job (cron or Task Scheduler)
   aahp schedule --remove             Remove the scheduled job
+  aahp plan                          Plan new tasks for idle repos (AI-generated NEXT_ACTIONS.md)
+  aahp plan --all --yes              Plan ALL idle repos without prompts
+  aahp overnight --yes               Full autonomous loop: plan + run + commit/push (8h default)
+  aahp overnight --yes --hours 0     Run forever until Ctrl+C
+  aahp overnight --yes --local       Include local-only repos (no GitHub remote)
 `)
 
 // ── Default: guided wizard when no command given ──────────────────────────────

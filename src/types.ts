@@ -39,4 +39,5 @@ export interface AahpProject {
   activeTasks: Array<[string, AahpTask]>
   blockedTasks: Array<[string, AahpTask]>
   cancelledTasks: Array<[string, AahpTask]>
+  isLocalOnly?: boolean  // true when repo has no GitHub remote
 }
