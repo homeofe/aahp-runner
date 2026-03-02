@@ -49,7 +49,7 @@ program
   .command('list')
   .description('List AAHP projects that have actionable tasks')
   .option('-r, --root <path>', 'Root development folder', DEFAULT_ROOT)
-  .option('-a, --all', 'Include idle projects with no tasks')
+  .option('-a, --all', 'Show every task per project (with GitHub issue links)')
   .action((opts: { root: string; all: boolean }) => {
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
@@ -61,35 +61,144 @@ program
       return
     }
 
-    const actionable = opts.all
-      ? projects
-      : projects.filter(p => p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length + p.cancelledTasks.length > 0)
+    const displayProjects = opts.all ? projects : projects.filter(p =>
+      p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length + p.cancelledTasks.length > 0
+    )
 
-    const totalTasks = projects.reduce((n, p) => n + p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length + p.cancelledTasks.length, 0)
-    const idleCount  = projects.length - actionable.length
+    const totalTasks = projects.reduce((n, p) =>
+      n + p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length + p.cancelledTasks.length, 0)
+    const idleCount = projects.filter(p =>
+      p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length + p.cancelledTasks.length === 0
+    ).length
 
-    if (actionable.length === 0) {
+    if (displayProjects.length === 0) {
       console.log(chalk.green('\n✅ All projects are up to date - no actionable tasks'))
       console.log(chalk.gray(`   ${projects.length} projects scanned · use --all to show them`))
       return
     }
 
     const ICON: Record<string, string> = {
-      in_progress: '🔄', ready: '⏳', blocked: '🚫', pending: '💤', done: '✅', cancelled: '🚫',
-    }
-    const PRI_COLOR: Record<string, (s: string) => string> = {
-      high: (s) => chalk.red(s), medium: (s) => chalk.yellow(s), low: (s) => chalk.gray(s),
+      in_progress: '🔄', ready: '⏳', blocked: '🚫', done: '✅', cancelled: '🚫',
     }
 
-    // Column widths - dynamic based on content, capped for readability
-    const termWidth = process.stdout.columns || 100
+    const termWidth = process.stdout.columns || 120
+
+    if (opts.all) {
+      // ── Expanded mode: one sub-row per task with GitHub issue link ────────
+      const W_NAME  = Math.min(28, Math.max(12, ...displayProjects.map(p => p.name.length)))
+      const W_PHASE = Math.min(14, Math.max(5,  ...displayProjects.map(p => (p.manifest.last_session.phase ?? '').length)))
+      const W_ID    = 6   // T-NNN
+      const W_PRI   = 3   // hig/med/low
+      const W_GH    = 6   // #12345
+      // title gets remaining width
+      const W_TITLE = Math.max(20, termWidth - W_NAME - W_PHASE - W_ID - W_PRI - W_GH - 18)
+
+      const trunc = (s: string, n: number) => s.length > n ? s.slice(0, n - 1) + '…' : s
+      const cell  = (s: string, w: number) => trunc(s, w).padEnd(w)
+
+      const divider = (l: string, m: string, r: string) =>
+        chalk.gray(
+          l + '─'.repeat(W_NAME + 2) + m + '─'.repeat(W_PHASE + 2) + m +
+          '─'.repeat(W_ID + 2) + m + '─'.repeat(W_PRI + 2) + m +
+          '─'.repeat(W_TITLE + 2) + m + '─'.repeat(W_GH + 2) + r
+        )
+
+      const totalShown = displayProjects.reduce((n, p) =>
+        n + Math.max(1, p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length), 0)
+
+      console.log(chalk.bold(`\n📋 AAHP  ·  ${projects.length} projects · ${totalTasks} tasks\n`))
+      console.log(divider('┌', '┬', '┐'))
+      console.log(
+        chalk.gray('│ ') + chalk.bold(cell('Project', W_NAME)) +
+        chalk.gray(' │ ') + chalk.bold(cell('Phase', W_PHASE)) +
+        chalk.gray(' │ ') + chalk.bold(cell('ID', W_ID)) +
+        chalk.gray(' │ ') + chalk.bold(cell('Pri', W_PRI)) +
+        chalk.gray(' │ ') + chalk.bold(cell('Task', W_TITLE)) +
+        chalk.gray(' │ ') + chalk.bold(cell('Issue', W_GH)) +
+        chalk.gray(' │')
+      )
+      console.log(divider('├', '┼', '┤'))
+
+      for (let pi = 0; pi < displayProjects.length; pi++) {
+        const project = displayProjects[pi]!
+        const phase = project.manifest.last_session.phase ?? ''
+        const taskRows = [
+          ...project.activeTasks,
+          ...project.readyTasks,
+          ...project.blockedTasks,
+        ] as Array<[string, import('./types.js').AahpTask]>
+
+        if (taskRows.length === 0) {
+          // idle project
+          console.log(
+            chalk.gray('│ ') + chalk.gray(cell(project.name, W_NAME)) +
+            chalk.gray(' │ ') + chalk.gray(cell(phase, W_PHASE)) +
+            chalk.gray(' │ ') + chalk.gray(cell('', W_ID)) +
+            chalk.gray(' │ ') + chalk.gray(cell('', W_PRI)) +
+            chalk.gray(' │ ') + chalk.green(cell('✅ idle — no open tasks', W_TITLE)) +
+            chalk.gray(' │ ') + chalk.gray(cell('', W_GH)) +
+            chalk.gray(' │')
+          )
+        } else {
+          for (let ti = 0; ti < taskRows.length; ti++) {
+            const [taskId, task] = taskRows[ti]!
+            const isFirst = ti === 0
+            // Only print project name and phase on the first task row
+            const nameStr  = isFirst ? project.name : ''
+            const phaseStr = isFirst ? phase : ''
+            const icon  = ICON[task.status] ?? '•'
+            const pri   = task.priority.slice(0, 3)
+            const gh    = task.github_issue ? `#${task.github_issue}` : ''
+            const title = `${icon} ${task.title}`
+
+            const nameColored  = isFirst
+              ? (project.activeTasks.length > 0 ? chalk.white.bold : chalk.white)(cell(nameStr, W_NAME))
+              : chalk.gray(cell(nameStr, W_NAME))
+            const phaseColored = chalk.cyan(cell(phaseStr, W_PHASE))
+            const idColored    = chalk.yellow(cell(taskId, W_ID))
+            const priColored   =
+              task.priority === 'high'   ? chalk.red(cell(pri, W_PRI)) :
+              task.priority === 'medium' ? chalk.yellow(cell(pri, W_PRI)) :
+              chalk.gray(cell(pri, W_PRI))
+            const titleColored =
+              task.status === 'blocked' ? chalk.gray(cell(title, W_TITLE)) :
+              task.status === 'in_progress' ? chalk.white(cell(title, W_TITLE)) :
+              chalk.white(cell(title, W_TITLE))
+            const ghColored    = gh ? chalk.blue(cell(gh, W_GH)) : chalk.gray(cell('', W_GH))
+
+            console.log(
+              chalk.gray('│ ') + nameColored +
+              chalk.gray(' │ ') + phaseColored +
+              chalk.gray(' │ ') + idColored +
+              chalk.gray(' │ ') + priColored +
+              chalk.gray(' │ ') + titleColored +
+              chalk.gray(' │ ') + ghColored +
+              chalk.gray(' │')
+            )
+          }
+        }
+
+        // Separator between projects (not after last)
+        if (pi < displayProjects.length - 1) {
+          console.log(divider('├', '┼', '┤'))
+        }
+      }
+
+      console.log(divider('└', '┴', '┘'))
+      console.log(chalk.gray(`\n  ${projects.length} projects · `) + chalk.yellow(String(totalTasks)) + chalk.gray(` tasks total`))
+      if (idleCount > 0) console.log(chalk.gray(`  ${idleCount} idle (no open tasks)`))
+      console.log(chalk.gray(`  aahp run --all --yes   to start all agents`))
+      console.log()
+      return
+    }
+
+    // ── Default mode: one row per project, top task only (unchanged) ─────────
+    const actionable = displayProjects
     const W_NAME  = Math.min(30, Math.max(12, ...actionable.map(p => p.name.length)))
     const W_PHASE = Math.min(16, Math.max(5,  ...actionable.map(p => (p.manifest.last_session.phase ?? '').length)))
     const W_CNT   = 5
-    // Top-task column gets whatever remains
     const W_TASK  = Math.max(20, termWidth - W_NAME - W_PHASE - W_CNT - 13)
 
-    // Helpers
     const trunc = (s: string, n: number) => s.length > n ? s.slice(0, n - 1) + '…' : s
     const cell  = (s: string, w: number) => trunc(s, w).padEnd(w)
 
@@ -115,14 +224,12 @@ program
       const phase    = project.manifest.last_session.phase ?? ''
       const isActive = project.activeTasks.length > 0
 
-      // Build top-task string (plain, so cell() can truncate correctly)
       let taskStr = ''
       if (topTask) {
         const [id, task] = topTask
         const icon   = ICON[task.status] ?? '•'
         const pri    = task.priority.slice(0, 3)
         const gh     = task.github_issue ? ` #${task.github_issue}` : ''
-        // icon is 2 wide; reserve those columns from the title budget
         const titleBudget = W_TASK - id.length - pri.length - gh.length - 6
         const title  = trunc(task.title, Math.max(8, titleBudget))
         taskStr = `${icon} ${id} (${pri}) ${title}${gh}`
@@ -148,7 +255,7 @@ program
 
     console.log(divider('└', '┴', '┘'))
 
-    const idleNote = !opts.all && idleCount > 0 ? chalk.gray(` · ${idleCount} idle hidden (--all)`) : ''
+    const idleNote = idleCount > 0 ? chalk.gray(` · ${idleCount} idle hidden (--all)`) : ''
     console.log(chalk.gray(`\n  ${actionable.length} projects · `) + chalk.yellow(String(totalTasks)) + chalk.gray(` tasks${idleNote}`))
     console.log(chalk.gray(`  aahp run --all --yes   to start all agents`))
     console.log()
