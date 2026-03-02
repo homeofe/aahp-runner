@@ -696,6 +696,29 @@ export function scanProjects(rootDir: string): AahpProject[] {
   })
 }
 
+/** Bootstrap a brand-new repo: create .ai/handoff/MANIFEST.json with no tasks,
+ *  then immediately scan it (which fetches GitHub issues) so it joins the pool. */
+export function bootstrapProject(repoPath: string): AahpProject | undefined {
+  const projectName = path.basename(repoPath)
+  const handoffDir = path.join(repoPath, '.ai', 'handoff')
+  const manifestPath = path.join(handoffDir, 'MANIFEST.json')
+  if (fs.existsSync(manifestPath)) return scanProjectByPath(repoPath)
+
+  try {
+    fs.mkdirSync(handoffDir, { recursive: true })
+    const seed = {
+      aahp_version: '3.0',
+      project: projectName,
+      tasks: {},
+      next_task_id: 1,
+    }
+    fs.writeFileSync(manifestPath, JSON.stringify(seed, null, 2) + '\n', 'utf8')
+  } catch {
+    return undefined
+  }
+  return scanProjectByPath(repoPath)
+}
+
 export function scanProjectByPath(repoPath: string): AahpProject | undefined {
   const handoffDir = path.join(repoPath, '.ai', 'handoff')
   const manifestPath = path.join(handoffDir, 'MANIFEST.json')

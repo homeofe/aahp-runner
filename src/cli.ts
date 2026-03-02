@@ -5,7 +5,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import os from 'os'
 import * as readline from 'readline'
-import { scanProjects, scanProjectByPath, scanAllGitRepos, getTopTask } from './scanner.js'
+import { scanProjects, scanProjectByPath, bootstrapProject, scanAllGitRepos, getTopTask } from './scanner.js'
 import { runAgent, runPlanningAgent } from './agent.js'
 import { runAsync } from './tools.js'
 import { loadConfig, saveConfig, registerScheduler, unregisterScheduler } from './scheduler.js'
@@ -339,9 +339,28 @@ program
         p.name.toLowerCase().includes(projectName.toLowerCase())
       )
       if (targets.length === 0) {
-        console.error(chalk.red(`No project matching "${projectName}"`))
-        console.log('Available:', actionable.map(p => p.name).join(', '))
-        process.exit(1)
+        // Project not in actionable pool — check if it exists but has no MANIFEST.json yet
+        const candidate = fs.readdirSync(rootDir, { withFileTypes: true })
+          .find(e => (e.isDirectory() || e.isSymbolicLink()) &&
+            e.name.toLowerCase().includes(projectName.toLowerCase()))
+        if (candidate) {
+          const candidatePath = path.join(rootDir, candidate.name)
+          if (fs.existsSync(path.join(candidatePath, '.git'))) {
+            console.log(chalk.gray(`\n  Bootstrapping ${candidate.name} (no MANIFEST.json yet) ...`))
+            const bootstrapped = bootstrapProject(candidatePath)
+            if (bootstrapped && (bootstrapped.readyTasks.length + bootstrapped.activeTasks.length > 0)) {
+              targets = [bootstrapped]
+            } else if (bootstrapped) {
+              console.log(chalk.yellow(`  ${candidate.name} has no ready tasks after GitHub sync.`))
+              process.exit(0)
+            }
+          }
+        }
+        if (targets.length === 0) {
+          console.error(chalk.red(`No project matching "${projectName}"`))
+          console.log('Available:', [...actionable.map(p => p.name)].join(', '))
+          process.exit(1)
+        }
       }
     } else if (!opts.all) {
       // Interactive pick
