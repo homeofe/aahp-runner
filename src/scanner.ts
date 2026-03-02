@@ -518,6 +518,17 @@ export function scanProjects(rootDir: string): AahpProject[] {
         fs.appendFileSync(_logFile, `${new Date().toISOString().slice(11, 19)} ${msg}\n`)
       } catch { /* best-effort */ }
     }
+    // Bootstrap: always create .ai/logs/ and gitignore entry on first scan,
+    // even if no sync events fire (no GitHub activity → repoLog never called otherwise)
+    try {
+      fs.mkdirSync(_logDir, { recursive: true })
+      const giPath = path.join(repoPath, '.gitignore')
+      const gi = fs.existsSync(giPath) ? fs.readFileSync(giPath, 'utf8') : ''
+      if (!gi.split('\n').some(l => l.trim() === '.ai/logs/')) {
+        fs.appendFileSync(giPath, (gi.endsWith('\n') || gi === '' ? '' : '\n') + '.ai/logs/\n')
+      }
+      fs.appendFileSync(_logFile, `${new Date().toISOString().slice(11, 19)} SCAN  ${manifest.project ?? entry.name}\n`)
+    } catch { /* best-effort */ }
 
     // Sync GitHub issues → MANIFEST, ensure NEXT_ACTIONS items have MANIFEST entries, then push unlinked tasks → GitHub
     manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest, repoLog)
@@ -580,6 +591,16 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
       fs.appendFileSync(_logFile, `${new Date().toISOString().slice(11, 19)} ${msg}\n`)
     } catch { /* best-effort */ }
   }
+  // Bootstrap: always create .ai/logs/ and gitignore entry on first scan
+  try {
+    fs.mkdirSync(_logDir, { recursive: true })
+    const giPath = path.join(repoPath, '.gitignore')
+    const gi = fs.existsSync(giPath) ? fs.readFileSync(giPath, 'utf8') : ''
+    if (!gi.split('\n').some(l => l.trim() === '.ai/logs/')) {
+      fs.appendFileSync(giPath, (gi.endsWith('\n') || gi === '' ? '' : '\n') + '.ai/logs/\n')
+    }
+    fs.appendFileSync(_logFile, `${new Date().toISOString().slice(11, 19)} SCAN  ${manifest.project ?? path.basename(repoPath)}\n`)
+  } catch { /* best-effort */ }
 
   manifest = fetchAndImportGitHubIssues(repoPath, handoffDir, manifest, repoLog)
   manifest = syncNextActionsToManifest(repoPath, handoffDir, manifest)
