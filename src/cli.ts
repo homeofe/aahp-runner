@@ -88,6 +88,7 @@ program
 
     const totalTasks = projects.reduce((n, p) =>
       n + p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length + p.cancelledTasks.length, 0)
+    const totalDone = projects.reduce((n, p) => n + p.doneTasks.length, 0)
     const idleCount = projects.filter(p =>
       p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length + p.cancelledTasks.length === 0
     ).length
@@ -127,7 +128,7 @@ program
       const totalShown = displayProjects.reduce((n, p) =>
         n + Math.max(1, p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length), 0)
 
-      console.log(chalk.bold(`\n📋 AAHP  ·  ${projects.length} projects · ${totalTasks} tasks\n`))
+      console.log(chalk.bold(`\n📋 AAHP  ·  ${projects.length} projects · ${totalTasks} actionable · ${totalDone} done\n`))
       console.log(divider('┌', '┬', '┐'))
       console.log(
         chalk.gray('│ ') + chalk.bold(cell('Project', W_NAME)) +
@@ -199,6 +200,20 @@ program
           }
         }
 
+        // Show done task count as a summary row (don't list individually)
+        if (project.doneTasks.length > 0) {
+          const doneStr = `✅ ${project.doneTasks.length} task(s) done`
+          console.log(
+            chalk.gray('│ ') + chalk.gray(cell('', W_NAME)) +
+            chalk.gray(' │ ') + chalk.gray(cell('', W_PHASE)) +
+            chalk.gray(' │ ') + chalk.gray(cell('', W_ID)) +
+            chalk.gray(' │ ') + chalk.gray(cell('', W_PRI)) +
+            chalk.gray(' │ ') + chalk.gray(cell(doneStr, W_TITLE)) +
+            chalk.gray(' │ ') + chalk.gray(cell('', W_GH)) +
+            chalk.gray(' │')
+          )
+        }
+
         // Separator between projects (not after last)
         if (pi < displayProjects.length - 1) {
           console.log(divider('├', '┼', '┤'))
@@ -206,7 +221,7 @@ program
       }
 
       console.log(divider('└', '┴', '┘'))
-      console.log(chalk.gray(`\n  ${projects.length} projects · `) + chalk.yellow(String(totalTasks)) + chalk.gray(` tasks total`))
+      console.log(chalk.gray(`\n  ${projects.length} projects · `) + chalk.yellow(String(totalTasks)) + chalk.gray(` actionable · `) + chalk.green(String(totalDone)) + chalk.gray(` done`))
       if (idleCount > 0) console.log(chalk.gray(`  ${idleCount} idle (no open tasks)`))
       console.log(chalk.gray(`  aahp run --all --yes   to start all agents`))
       console.log()

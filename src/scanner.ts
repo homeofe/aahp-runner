@@ -844,6 +844,9 @@ export function scanProjects(rootDir: string): AahpProject[] {
     const cancelledTasks = Object.entries(tasks).filter(
       ([, t]) => t.status === 'cancelled'
     ) as Array<[string, AahpTask]>
+    const doneTasks = Object.entries(tasks).filter(
+      ([, t]) => t.status === 'done'
+    ) as Array<[string, AahpTask]>
 
     projects.push({
       name: manifest.project || entry.name,
@@ -854,6 +857,7 @@ export function scanProjects(rootDir: string): AahpProject[] {
       activeTasks,
       blockedTasks,
       cancelledTasks,
+      doneTasks,
       isLocalOnly: !detectGitHubRepo(repoPath),
     })
   }
@@ -945,6 +949,9 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
   const cancelledTasks = Object.entries(tasks).filter(
     ([, t]) => t.status === 'cancelled'
   ) as Array<[string, AahpTask]>
+  const doneTasks = Object.entries(tasks).filter(
+    ([, t]) => t.status === 'done'
+  ) as Array<[string, AahpTask]>
 
   return {
     name: manifest.project || path.basename(repoPath),
@@ -955,6 +962,7 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
     activeTasks,
     blockedTasks,
     cancelledTasks,
+    doneTasks,
     isLocalOnly: !detectGitHubRepo(repoPath),
   }
 }
