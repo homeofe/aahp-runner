@@ -47,6 +47,11 @@ function extractPriorityFromTitle(title: string): AahpTask['priority'] | undefin
   return undefined
 }
 
+/** Resolve issue priority with explicit title marker taking precedence over labels. */
+function resolveIssuePriority(issue: Pick<GitHubIssue, 'title' | 'labels'>): AahpTask['priority'] | undefined {
+  return extractPriorityFromTitle(issue.title) ?? labelsToPriority(issue.labels)
+}
+
 /** Map GitHub issue state + labels to an AAHP task status.
  *  closed (not_planned)   → cancelled
  *  closed (other)         → done
@@ -419,8 +424,8 @@ export function fetchAndImportGitHubIssues(
           delete task.completed
           changed = true
         }
-        // Sync priority from current GitHub labels (only when issue has a priority label)
-        const ghPriority = labelsToPriority(issue.labels)
+        // Sync priority from issue metadata with title marker precedence
+        const ghPriority = resolveIssuePriority(issue)
         if (ghPriority && task.priority !== ghPriority) {
           task.priority = ghPriority
           changed = true
@@ -450,8 +455,8 @@ export function fetchAndImportGitHubIssues(
         existingTask.status = githubStatus
         taskChanged = true
       }
-      // Sync priority from current GitHub labels
-      const ghPriority1 = labelsToPriority(issue.labels)
+      // Sync priority from issue metadata with title marker precedence
+      const ghPriority1 = resolveIssuePriority(issue)
       if (ghPriority1 && existingTask.priority !== ghPriority1) { existingTask.priority = ghPriority1; taskChanged = true }
 
       if (taskChanged) changed = true
@@ -468,8 +473,8 @@ export function fetchAndImportGitHubIssues(
       existingTask.github_repo = repo
       const shouldSyncStatus = githubStatus === 'done' || existingTask.status !== 'in_progress'
       if (shouldSyncStatus && existingTask.status !== githubStatus) existingTask.status = githubStatus
-      // Sync priority from current GitHub labels
-      const ghPriority2 = labelsToPriority(issue.labels)
+      // Sync priority from issue metadata with title marker precedence
+      const ghPriority2 = resolveIssuePriority(issue)
       if (ghPriority2) existingTask.priority = ghPriority2
       titleToTaskId.delete(normalizedIssueTitle)
       importedIssueNumbers.add(issue.number)
@@ -495,8 +500,8 @@ export function fetchAndImportGitHubIssues(
       existingTask.github_repo = repo
       const shouldSyncStatus = githubStatus === 'done' || existingTask.status !== 'in_progress'
       if (shouldSyncStatus && existingTask.status !== githubStatus) existingTask.status = githubStatus
-      // Sync priority from current GitHub labels
-      const ghPriority3 = labelsToPriority(issue.labels)
+      // Sync priority from issue metadata with title marker precedence
+      const ghPriority3 = resolveIssuePriority(issue)
       if (ghPriority3) existingTask.priority = ghPriority3
       titleToTaskId.delete(normalizeTitle(existingTask.title))
       importedIssueNumbers.add(issue.number)
@@ -509,7 +514,7 @@ export function fetchAndImportGitHubIssues(
     tasks[taskId] = {
       title: issue.title,
       status: githubStatus,
-      priority: labelsToPriority(issue.labels) ?? extractPriorityFromTitle(issue.title) ?? 'medium',
+      priority: resolveIssuePriority(issue) ?? 'medium',
       depends_on: [],
       created: new Date().toISOString(),
       notes: issue.body ? issue.body.slice(0, 500) : undefined,
