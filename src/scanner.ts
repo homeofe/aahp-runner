@@ -250,13 +250,6 @@ export function createMissingGitHubIssues(
 
   onLog?.(`[SYNC] creating ${toCreate.length} missing GitHub issue(s) in ${repo}`)
 
-  // Ensure all needed labels exist before creating issues
-  const labelsNeeded = new Set(toCreate.flatMap(([, t]) => [t.priority, t.status]))
-  for (const key of labelsNeeded) {
-    const lbl = PRIORITY_LABELS[key] ?? STATUS_LABELS[key]
-    if (lbl) ensureLabel(repo, lbl.name, lbl.color, repoPath)
-  }
-
   let changed = false
   for (const [taskId, task] of toCreate) {
     // Reconcile priority: title may contain [high]/[medium]/[low] that overrides task.priority
@@ -264,6 +257,12 @@ export function createMissingGitHubIssues(
     if (titlePri && titlePri !== task.priority) {
       task.priority = titlePri
     }
+
+    // Ensure labels exist after reconciliation so the correct label is guaranteed on the repo
+    const priLbl = PRIORITY_LABELS[task.priority]
+    const stsLbl = STATUS_LABELS[task.status]
+    if (priLbl) ensureLabel(repo, priLbl.name, priLbl.color, repoPath)
+    if (stsLbl) ensureLabel(repo, stsLbl.name, stsLbl.color, repoPath)
 
     const title = `[${taskId}] ${task.title}`
 
