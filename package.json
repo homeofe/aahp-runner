@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Autonomous agent runner for AAHP v3 projects - spawns Claude agents to work through tasks across all repos",
   "license": "MIT",
-  "author": "elvatis",
+  "author": "Elvatis <emre.kohler@elvatis.com>",
   "repository": {
     "type": "git",
     "url": "https://github.com/homeofe/aahp-runner.git"
