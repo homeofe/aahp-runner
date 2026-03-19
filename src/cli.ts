@@ -311,8 +311,9 @@ program
   .option('-b, --backend <backend>', 'Agent backend: auto (default), claude, copilot, sdk', 'auto')
   .option('-t, --timeout <minutes>', 'Per-agent timeout in minutes (default: 10)', '10')
   .option('--follow-up', 'After completing tasks, auto-plan idle repos and run new tasks (chains until done)')
+  .option('--dry-run', 'Show what would be executed without running agents')
   .action(async (projectName: string | undefined, opts: {
-    root: string; all: boolean; yes: boolean; limit: string; apiKey?: string; backend: string; timeout: string; followUp: boolean
+    root: string; all: boolean; yes: boolean; limit: string; apiKey?: string; backend: string; timeout: string; followUp: boolean; dryRun: boolean
   }) => {
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
@@ -337,6 +338,104 @@ program
       } else {
         console.log(chalk.green('\n✅ All projects are up to date — no actionable tasks'))
       }
+      return
+    }
+
+    // ── Dry-run mode: show what would be executed, then exit ──────────────────
+    if (opts.dryRun) {
+      const resolvedBackend = (opts.backend ?? config.backend ?? 'auto')
+      const resolvedTimeout = parseInt(opts.timeout, 10) || config.timeoutMinutes || 10
+
+      console.log(chalk.bold('\n🔍 Dry-run mode — no agents will be started\n'))
+      console.log(chalk.gray(`  Backend:  ${resolvedBackend}`))
+      console.log(chalk.gray(`  Timeout:  ${resolvedTimeout}m per agent`))
+      console.log(chalk.gray(`  Root:     ${rootDir}`))
+      console.log()
+
+      // Determine which projects would be targeted
+      let dryTargets = actionable
+      if (!opts.all && projectName) {
+        dryTargets = actionable.filter(p =>
+          p.name.toLowerCase().includes(projectName.toLowerCase())
+        )
+      } else if (!opts.all) {
+        // Interactive mode would pick one — show all actionable
+        dryTargets = actionable
+      }
+
+      if (dryTargets.length === 0) {
+        console.log(chalk.yellow('  No projects with ready tasks found — nothing would run.'))
+        console.log()
+        return
+      }
+
+      const plural = dryTargets.length !== 1 ? 's' : ''
+      console.log(chalk.bold(`  Would run ${dryTargets.length} agent${plural}:\n`))
+
+      const termWidth = process.stdout.columns || 100
+      const W_NAME  = Math.min(28, Math.max(12, ...dryTargets.map(p => p.name.length)))
+      const W_ID    = 6
+      const W_PRI   = 6
+      const W_BACK  = resolvedBackend.length + 2
+      const W_TITLE = Math.max(20, termWidth - W_NAME - W_ID - W_PRI - W_BACK - 18)
+
+      const trunc = (s: string, n: number) => s.length > n ? s.slice(0, n - 1) + '…' : s
+      const cell  = (s: string, w: number) => trunc(s, w).padEnd(w)
+
+      const divider = (l: string, m: string, r: string) =>
+        chalk.gray(
+          l + '─'.repeat(W_NAME + 2) + m + '─'.repeat(W_ID + 2) + m +
+          '─'.repeat(W_PRI + 2) + m + '─'.repeat(W_BACK + 2) + m +
+          '─'.repeat(W_TITLE + 2) + r
+        )
+
+      console.log(divider('┌', '┬', '┐'))
+      console.log(
+        chalk.gray('│ ') + chalk.bold(cell('Project', W_NAME)) +
+        chalk.gray(' │ ') + chalk.bold(cell('Task', W_ID)) +
+        chalk.gray(' │ ') + chalk.bold(cell('Pri', W_PRI)) +
+        chalk.gray(' │ ') + chalk.bold(cell('Backend', W_BACK)) +
+        chalk.gray(' │ ') + chalk.bold(cell('Title', W_TITLE)) +
+        chalk.gray(' │')
+      )
+      console.log(divider('├', '┼', '┤'))
+
+      for (const project of dryTargets) {
+        const topTask = getTopTask(project)
+        if (!topTask) continue
+        const [taskId, task] = topTask
+        const gh = task.github_issue ? ` #${task.github_issue}` : ''
+        const priColor =
+          task.priority === 'high'   ? chalk.red :
+          task.priority === 'medium' ? chalk.yellow :
+          chalk.gray
+        console.log(
+          chalk.gray('│ ') + chalk.white(cell(project.name, W_NAME)) +
+          chalk.gray(' │ ') + chalk.yellow(cell(taskId, W_ID)) +
+          chalk.gray(' │ ') + priColor(cell(task.priority, W_PRI)) +
+          chalk.gray(' │ ') + chalk.cyan(cell(resolvedBackend, W_BACK)) +
+          chalk.gray(' │ ') + chalk.white(cell(task.title + gh, W_TITLE)) +
+          chalk.gray(' │')
+        )
+      }
+
+      console.log(divider('└', '┴', '┘'))
+
+      // Show the config that would be used
+      console.log()
+      console.log(chalk.bold('  Config that would be used:'))
+      const apiKeyStatus = (opts.apiKey ?? process.env['ANTHROPIC_API_KEY'] ?? config.apiKey ?? '')
+        ? chalk.green('set') : chalk.yellow('not set (may be needed for sdk backend)')
+      console.log(chalk.gray(`    api-key:  ${apiKeyStatus}`))
+      console.log(chalk.gray(`    backend:  ${resolvedBackend}`))
+      console.log(chalk.gray(`    timeout:  ${resolvedTimeout} minutes`))
+      console.log(chalk.gray(`    parallel: ${opts.all && opts.yes ? (parseInt(opts.limit, 10) || 'unlimited') : 'sequential'}`))
+      if (opts.followUp) {
+        console.log(chalk.gray('    follow-up: enabled (would chain planning after completion)'))
+      }
+      console.log()
+      console.log(chalk.gray('  Re-run without --dry-run to execute.'))
+      console.log()
       return
     }
 
