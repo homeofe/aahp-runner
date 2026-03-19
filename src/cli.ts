@@ -1004,7 +1004,102 @@ program
   .description('Show live running agents and quick status overview')
   .option('-r, --root <path>', 'Root development folder', DEFAULT_ROOT)
   .option('-w, --watch', 'Refresh every 3 seconds (Ctrl+C to stop)')
-  .action(async (opts: { root: string; watch: boolean }) => {
+  .option('-q, --quick', 'Quick-look: show current project status from .ai/handoff/ (reads local directory)')
+  .option('-p, --project <path>', 'Project directory for --quick mode (default: cwd)')
+  .action(async (opts: { root: string; watch: boolean; quick?: boolean; project?: string }) => {
+    // ── Quick mode: single-project status from local .ai/handoff/ ───────────
+    if (opts.quick) {
+      const projectDir = opts.project ? path.resolve(opts.project) : process.cwd()
+      const handoffDir = path.join(projectDir, '.ai', 'handoff')
+      const manifestPath = path.join(handoffDir, 'MANIFEST.json')
+      const statusPath = path.join(handoffDir, 'STATUS.md')
+
+      if (!fs.existsSync(manifestPath)) {
+        console.log(chalk.red(`No .ai/handoff/MANIFEST.json found in: ${projectDir}`))
+        console.log(chalk.gray('Run from a project root with AAHP handoff files, or use --project <path>'))
+        process.exit(1)
+      }
+
+      let manifest: import('./types.js').AahpManifest
+      try {
+        manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+      } catch (err) {
+        console.log(chalk.red(`Failed to parse MANIFEST.json: ${String(err)}`))
+        process.exit(1)
+      }
+
+      // Read last agent session info
+      const session = manifest.last_session
+      const tasks = manifest.tasks ?? {}
+      const taskList = Object.entries(tasks)
+      const activeTasks  = taskList.filter(([, t]) => t.status === 'in_progress')
+      const readyTasks   = taskList.filter(([, t]) => t.status === 'ready')
+      const blockedTasks = taskList.filter(([, t]) => t.status === 'blocked')
+      const doneTasks    = taskList.filter(([, t]) => t.status === 'done')
+
+      // Read STATUS.md first line for summary
+      let statusSummary = ''
+      if (fs.existsSync(statusPath)) {
+        const statusLines = fs.readFileSync(statusPath, 'utf8').split('\n')
+        // Find first non-heading, non-blank meaningful line
+        const summaryLine = statusLines.find(l => l.trim() && !l.startsWith('#'))
+        if (summaryLine) statusSummary = summaryLine.trim().slice(0, 80)
+      }
+
+      // Read last log line
+      const lastLog = getLastLogLine(path.basename(projectDir), projectDir)
+
+      console.log(chalk.bold(`\n📋 ${manifest.project ?? path.basename(projectDir)}\n`))
+      console.log(`  ${chalk.gray('Phase:')}      ${chalk.cyan(session.phase ?? '(unknown)')}`)
+      console.log(`  ${chalk.gray('Backend:')}    ${chalk.white(session.agent ?? '(unknown)')}`)
+      console.log(`  ${chalk.gray('Last run:')}   ${chalk.white(session.timestamp ? new Date(session.timestamp).toLocaleString() : '(unknown)')}`)
+      console.log(`  ${chalk.gray('Commit:')}     ${chalk.yellow(session.commit ?? '(unknown)')}`)
+      if (session.duration_minutes) {
+        console.log(`  ${chalk.gray('Duration:')}   ${chalk.white(session.duration_minutes + 'm')}`)
+      }
+      if (statusSummary) {
+        console.log(`  ${chalk.gray('Status:')}     ${chalk.white(statusSummary)}`)
+      }
+
+      console.log()
+      console.log(`  ${chalk.gray('Tasks:')}`)
+      if (activeTasks.length > 0) {
+        for (const [id, t] of activeTasks) {
+          const gh = t.github_issue ? chalk.blue(` #${t.github_issue}`) : ''
+          console.log(`    ${chalk.cyan('🔄')} ${chalk.bold(id)} ${t.title}${gh}`)
+        }
+      }
+      if (readyTasks.length > 0) {
+        for (const [id, t] of readyTasks) {
+          const gh = t.github_issue ? chalk.blue(` #${t.github_issue}`) : ''
+          const priColor = t.priority === 'high' ? chalk.red : t.priority === 'medium' ? chalk.yellow : chalk.gray
+          console.log(`    ${chalk.gray('⏳')} ${priColor(id)} ${t.title}${gh}`)
+        }
+      }
+      if (blockedTasks.length > 0) {
+        for (const [id, t] of blockedTasks) {
+          console.log(`    ${chalk.red('🚫')} ${chalk.gray(id)} ${chalk.gray(t.title)}`)
+        }
+      }
+      if (activeTasks.length === 0 && readyTasks.length === 0 && blockedTasks.length === 0) {
+        console.log(`    ${chalk.green('✅')} All ${doneTasks.length} task(s) done`)
+      } else {
+        const parts: string[] = []
+        if (activeTasks.length > 0) parts.push(chalk.cyan(`${activeTasks.length} active`))
+        if (readyTasks.length > 0) parts.push(chalk.yellow(`${readyTasks.length} ready`))
+        if (blockedTasks.length > 0) parts.push(chalk.red(`${blockedTasks.length} blocked`))
+        if (doneTasks.length > 0) parts.push(chalk.green(`${doneTasks.length} done`))
+        console.log(`    ${parts.join(chalk.gray(' · '))}`)
+      }
+
+      if (lastLog) {
+        console.log()
+        console.log(`  ${chalk.gray('Last log:')}   ${chalk.gray(lastLog)}`)
+      }
+      console.log()
+      return
+    }
+
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
 
@@ -1207,6 +1302,114 @@ program
 
     console.log(chalk.gray(`  Data: ${metricsFilePath()}`))
     console.log(chalk.gray('  Export: aahp metrics --json > metrics.json'))
+    console.log()
+  })
+
+// ── archive — LOG.md rotation ─────────────────────────────────────────────────
+
+program
+  .command('archive')
+  .description('Rotate .ai/handoff/LOG.md into logs/LOG-YYYY-MM-DD.md and create a fresh LOG.md')
+  .option('-p, --project <path>', 'Project directory containing .ai/handoff/ (default: cwd)')
+  .option('-k, --keep <n>', 'Keep last N archived logs (default: 10)', '10')
+  .option('--dry-run', 'Show what would happen without making changes')
+  .action((opts: { project?: string; keep: string; dryRun?: boolean }) => {
+    const projectDir = opts.project ? path.resolve(opts.project) : process.cwd()
+    const handoffDir = path.join(projectDir, '.ai', 'handoff')
+    const archiveDir = path.join(projectDir, '.ai', 'handoff', 'logs')
+    const logFile = path.join(handoffDir, 'LOG.md')
+    const keepCount = Math.max(1, parseInt(opts.keep, 10) || 10)
+
+    // Validate handoff directory
+    if (!fs.existsSync(handoffDir)) {
+      console.log(chalk.red(`No .ai/handoff/ directory found in: ${projectDir}`))
+      console.log(chalk.gray('Run from a project root that has AAHP handoff files.'))
+      process.exit(1)
+    }
+
+    if (!fs.existsSync(logFile)) {
+      console.log(chalk.yellow(`No LOG.md found at: ${logFile}`))
+      console.log(chalk.gray('Nothing to archive.'))
+      return
+    }
+
+    const stamp = new Date().toISOString().slice(0, 10)
+    const archiveName = `LOG-${stamp}.md`
+    const archivePath = path.join(archiveDir, archiveName)
+
+    if (opts.dryRun) {
+      console.log(chalk.bold('\n📦 Archive dry-run:'))
+      console.log(chalk.gray(`  Source:  ${logFile}`))
+      console.log(chalk.gray(`  Archive: ${archivePath}`))
+      console.log(chalk.gray(`  New LOG.md will be created with fresh header`))
+      console.log(chalk.gray(`  Keep: last ${keepCount} archived logs`))
+
+      if (fs.existsSync(archiveDir)) {
+        const existing = fs.readdirSync(archiveDir)
+          .filter(f => f.match(/^LOG-\d{4}-\d{2}-\d{2}\.md$/))
+          .sort()
+        if (existing.length >= keepCount) {
+          const toDelete = existing.slice(0, existing.length - keepCount + 1)
+          console.log(chalk.gray(`  Would delete ${toDelete.length} old archive(s): ${toDelete.join(', ')}`))
+        }
+      }
+      console.log()
+      return
+    }
+
+    // Create archive directory
+    fs.mkdirSync(archiveDir, { recursive: true })
+
+    // Handle duplicate archive name (append a counter)
+    let finalArchivePath = archivePath
+    if (fs.existsSync(archivePath)) {
+      let counter = 1
+      while (fs.existsSync(finalArchivePath)) {
+        finalArchivePath = path.join(archiveDir, `LOG-${stamp}-${counter}.md`)
+        counter++
+      }
+    }
+
+    // Move LOG.md to archive
+    fs.copyFileSync(logFile, finalArchivePath)
+    const archiveBytes = fs.statSync(finalArchivePath).size
+
+    // Create fresh LOG.md
+    const freshHeader = `# ${path.basename(projectDir)}: Agent Journal
+
+> **Append-only.** Never delete or edit past entries.
+> Every agent session adds a new entry at the top.
+> This file is the immutable history of decisions and work done.
+> Archived: ${new Date().toISOString().slice(0, 10)} (previous entries in logs/)
+
+---
+
+`
+    fs.writeFileSync(logFile, freshHeader, 'utf8')
+
+    // Prune old archives beyond keepCount
+    const allArchives = fs.readdirSync(archiveDir)
+      .filter(f => f.match(/^LOG-\d{4}-\d{2}-\d{2}(-\d+)?\.md$/))
+      .sort()
+
+    let pruned = 0
+    if (allArchives.length > keepCount) {
+      const toDelete = allArchives.slice(0, allArchives.length - keepCount)
+      for (const f of toDelete) {
+        fs.rmSync(path.join(archiveDir, f))
+        pruned++
+      }
+    }
+
+    console.log(chalk.bold('\n📦 Archive complete:'))
+    console.log(chalk.green(`  ✅ LOG.md archived to: ${path.relative(projectDir, finalArchivePath)}`))
+    console.log(chalk.gray(`     ${(archiveBytes / 1024).toFixed(1)} KB preserved`))
+    console.log(chalk.green(`  ✅ Fresh LOG.md created`))
+    if (pruned > 0) {
+      console.log(chalk.gray(`  🗑  ${pruned} old archive(s) pruned (keeping last ${keepCount})`))
+    }
+    const remaining = allArchives.length - pruned + 1
+    console.log(chalk.gray(`  📁 ${remaining} archive(s) in .ai/handoff/logs/`))
     console.log()
   })
 

@@ -2,37 +2,37 @@
   "aahp_version": "3.0",
   "project": "aahp-runner",
   "last_session": {
-    "agent": "claude-code",
-    "session_id": "cron-support-2026-02-27",
-    "timestamp": "2026-02-27T04:06:28.344Z",
-    "commit": "2e2d896",
+    "agent": "claude-sonnet-4-6",
+    "session_id": "T-005-T-006-T-008-2026-03-19",
+    "timestamp": "2026-03-19T05:19:00.000Z",
+    "commit": "(pending)",
     "phase": "implement",
-    "duration_minutes": 2
+    "duration_minutes": 4
   },
   "files": {
     "STATUS.md": {
       "checksum": "sha256:(pending)",
-      "updated": "2026-02-27T02:31:15Z",
+      "updated": "2026-03-19T05:19:00Z",
       "lines": 52,
-      "summary": "v0.1.0 functional. 3 backends, 5 commands. Missing: CI, tests, npm publish."
+      "summary": "v0.2.0: status --quick, archive command, withRetry. 160 tests passing."
     },
     "NEXT_ACTIONS.md": {
       "checksum": "sha256:(pending)",
-      "updated": "2026-02-27T02:31:15Z",
+      "updated": "2026-03-19T05:19:00Z",
       "lines": 80,
-      "summary": "T-001 CI, T-002 tests, T-003 npm publish, T-004 cron support"
+      "summary": "T-009 dry-run mode remaining"
     },
     "LOG.md": {
       "checksum": "sha256:(pending)",
-      "updated": "2026-02-27T02:31:15Z",
-      "lines": 48,
-      "summary": "Bootstrapped AAHP handoff files for aahp-runner"
+      "updated": "2026-03-19T05:19:00Z",
+      "lines": 60,
+      "summary": "T-005+T-006+T-008 implemented: status --quick, archive, withRetry"
     },
     "DASHBOARD.md": {
       "checksum": "sha256:(pending)",
-      "updated": "2026-02-27T02:31:15Z",
+      "updated": "2026-03-19T05:19:00Z",
       "lines": 60,
-      "summary": "All components manual-tested. CI and tests missing."
+      "summary": "160 tests passing. CI green. 3 tasks done this session."
     },
     "TRUST.md": {
       "checksum": "sha256:(pending)",
@@ -53,7 +53,7 @@
       "summary": "4-phase pipeline: research, architect, implement, review"
     }
   },
-  "quick_context": "aahp-runner v0.1.0: autonomous AAHP agent runner. 3 backends (claude-cli, copilot, sdk), 9 commands, parallel execution. Cross-platform scheduling (cron on Linux/macOS, Task Scheduler on Windows). CI pipeline, 98 Vitest tests. npm-ready. 5 tasks ready for v0.2.0: status enhancement, archive command, agent tests, retry logic, dry-run mode.",
+  "quick_context": "aahp-runner v0.2.0: autonomous AAHP agent runner. 3 backends, 11 commands (added archive, enhanced status --quick). withRetry exponential backoff exported from agent.ts. 160 Vitest tests. T-009 dry-run mode still open.",
   "token_budget": {
     "manifest_only": 80,
     "manifest_plus_core": 1200,
@@ -95,41 +95,47 @@
     },
     "T-005": {
       "title": "Add `aahp status` quick-look command",
-      "status": "ready",
+      "status": "done",
       "priority": "medium",
       "depends_on": [],
       "created": "2026-03-02T03:22:00Z",
+      "completed": "2026-03-19T05:19:00.000Z",
       "github_issue": 1,
       "github_repo": "homeofe/aahp-runner",
-      "notes": "Moved from homeofe/AAHP T-015. `aahp status` is a CLI command — the `aahp` bin lives in aahp-runner (dist/cli.js). Should show a quick summary of all projects: task counts, last commit, blocked/ready state."
+      "notes": "Implemented as `aahp status --quick` flag. Reads .ai/handoff/MANIFEST.json in cwd (or --project path). Shows: project, phase, backend, last run, commit, tasks summary, last log line."
     },
     "T-006": {
       "title": "Add `aahp archive` command for LOG.md rotation",
-      "status": "ready",
+      "status": "done",
       "priority": "medium",
       "depends_on": [],
       "created": "2026-03-02T03:22:00Z",
+      "completed": "2026-03-19T05:19:00.000Z",
       "github_issue": 2,
       "github_repo": "homeofe/aahp-runner",
-      "notes": "Moved from homeofe/AAHP T-016. `aahp archive` is a CLI command — rotates LOG.md entries older than N days into an archive file to keep the handoff files lean."
+      "notes": "New `aahp archive` command. Moves LOG.md to .ai/handoff/logs/LOG-YYYY-MM-DD.md. Creates fresh LOG.md with header. Prunes old archives beyond --keep N (default 10). Supports --dry-run and --project flags. 14 tests."
     },
     "T-007": {
       "title": "Add agent execution tests",
-      "status": "ready",
+      "status": "done",
       "priority": "high",
       "depends_on": [],
       "created": "2026-03-02T12:00:00Z",
+      "completed": "2026-03-19T05:19:00.000Z",
       "github_issue": 3,
-      "github_repo": "homeofe/aahp-runner"
+      "github_repo": "homeofe/aahp-runner",
+      "notes": "30 tests in src/agent.test.ts covering all backends, commit detection, logging, error handling."
     },
     "T-008": {
       "title": "Add retry logic with exponential backoff",
-      "status": "ready",
+      "status": "done",
       "priority": "medium",
       "depends_on": [],
       "created": "2026-03-02T12:00:00Z",
+      "completed": "2026-03-19T05:19:00.000Z",
       "github_issue": 4,
-      "github_repo": "homeofe/aahp-runner"
+      "github_repo": "homeofe/aahp-runner",
+      "notes": "withRetry<T>() exported from agent.ts. Configurable maxRetries (default 3), baseDelayMs (default 1000). Exponential schedule: baseDelayMs * 2^(attempt-1). Non-retryable: no backend, auth errors. onRetry callback. 18 tests in src/retry.test.ts. runAgent() accepts optional retryOptions."
     },
     "T-009": {
       "title": "Add --dry-run flag to aahp run",

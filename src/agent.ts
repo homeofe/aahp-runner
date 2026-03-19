@@ -499,6 +499,69 @@ function markTaskDone(project: AahpProject, taskId: string, task: AahpTask, turn
   saveManifest(project, updated)
 }
 
+// ── Retry with exponential backoff ───────────────────────────────────────────
+
+export interface RetryOptions {
+  maxRetries?: number   // default 3
+  baseDelayMs?: number  // default 1000
+  onRetry?: (attempt: number, error: Error, delayMs: number) => void
+}
+
+/**
+ * Run an async function with exponential backoff retry on failure.
+ * Retries only when the function throws or returns success=false.
+ *
+ * Delay schedule: baseDelayMs * 2^(attempt-1)  (1s, 2s, 4s by default)
+ * Does NOT retry when no backend is available (throws immediately).
+ */
+export async function withRetry<T extends { success: boolean }>(
+  fn: () => Promise<T>,
+  opts: RetryOptions = {}
+): Promise<T> {
+  const maxRetries = opts.maxRetries ?? 3
+  const baseDelayMs = opts.baseDelayMs ?? 1000
+
+  let lastError: Error | undefined
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      const result = await fn()
+      if (result.success || attempt > maxRetries) return result
+
+      // Non-throwing failure: treat as retryable
+      if (attempt <= maxRetries) {
+        const delayMs = baseDelayMs * Math.pow(2, attempt - 1)
+        opts.onRetry?.(attempt, new Error('Agent returned success=false'), delayMs)
+        await new Promise(r => setTimeout(r, delayMs))
+      } else {
+        return result
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+
+      // Non-retryable errors: no backend available, auth errors
+      const msg = lastError.message
+      if (
+        msg.includes('No agent backend') ||
+        msg.includes('Claude Code CLI not found') ||
+        msg.includes('GitHub Copilot token not found') ||
+        msg.includes('token invalid or expired')
+      ) {
+        throw lastError
+      }
+
+      if (attempt > maxRetries) throw lastError
+
+      const delayMs = baseDelayMs * Math.pow(2, attempt - 1)
+      opts.onRetry?.(attempt, lastError, delayMs)
+      await new Promise(r => setTimeout(r, delayMs))
+    }
+  }
+
+  // Should never reach here but satisfy TypeScript
+  if (lastError) throw lastError
+  throw new Error('withRetry: unexpected exit')
+}
+
 /** Main entry point - selects backend based on explicit preference or auto-detection */
 export async function runAgent(
   project: AahpProject,
@@ -507,25 +570,39 @@ export async function runAgent(
   apiKey: string,
   onLog: (msg: string) => void,
   explicitBackend: 'auto' | 'claude' | 'copilot' | 'sdk' = 'auto',
-  timeoutMinutes: number = 10
+  timeoutMinutes: number = 10,
+  retryOptions?: RetryOptions
 ): Promise<AgentResult> {
   const { backend, copilotToken } = await resolveBackend(apiKey, explicitBackend)
   const timeoutMs = timeoutMinutes * 60 * 1000
 
-  if (backend === 'claude-cli') return runViaClaudeCLI(project, taskId, task, onLog, timeoutMs)
-  if (backend === 'copilot') return runViaCopilot(project, taskId, task, copilotToken, onLog, timeoutMs)
-  if (backend === 'sdk') return runViaSDK(project, taskId, task, apiKey, onLog, timeoutMs)
+  // backend === 'none' — throw immediately (non-retryable)
+  if (backend === 'none') {
+    const hint = explicitBackend === 'copilot'
+      ? 'GitHub Copilot token not found. Make sure you are signed in: gh auth login'
+      : explicitBackend === 'claude'
+        ? 'Claude Code CLI not found. Install the Claude Code VS Code extension.'
+        : 'No agent backend available.\n' +
+          '  Option 1: Install Claude Code extension in VS Code (no API key needed)\n' +
+          '  Option 2: Sign in to GitHub CLI - gh auth login  (uses your Copilot subscription)\n' +
+          '  Option 3: aahp config --api-key "sk-ant-..."  (Anthropic API key)'
+    throw new Error(hint)
+  }
 
-  // backend === 'none'
-  const hint = explicitBackend === 'copilot'
-    ? 'GitHub Copilot token not found. Make sure you are signed in: gh auth login'
-    : explicitBackend === 'claude'
-      ? 'Claude Code CLI not found. Install the Claude Code VS Code extension.'
-      : 'No agent backend available.\n' +
-        '  Option 1: Install Claude Code extension in VS Code (no API key needed)\n' +
-        '  Option 2: Sign in to GitHub CLI - gh auth login  (uses your Copilot subscription)\n' +
-        '  Option 3: aahp config --api-key "sk-ant-..."  (Anthropic API key)'
-  throw new Error(hint)
+  const run = (): Promise<AgentResult> => {
+    if (backend === 'claude-cli') return runViaClaudeCLI(project, taskId, task, onLog, timeoutMs)
+    if (backend === 'copilot') return runViaCopilot(project, taskId, task, copilotToken, onLog, timeoutMs)
+    return runViaSDK(project, taskId, task, apiKey, onLog, timeoutMs)
+  }
+
+  if (!retryOptions) return run()
+  return withRetry(run, {
+    ...retryOptions,
+    onRetry: (attempt, err, delay) => {
+      onLog(`\n[retry] attempt ${attempt} failed (${err.message.slice(0, 80)}) — retrying in ${delay}ms`)
+      retryOptions.onRetry?.(attempt, err, delay)
+    },
+  })
 }
 
 export interface PlanningResult {

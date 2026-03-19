@@ -6,6 +6,52 @@
 
 ---
 
+## [2026-03-19] Claude Sonnet 4.6: T-005 + T-006 + T-008
+
+**Agent:** Claude Sonnet 4.6
+**Phase:** implement
+**Branch:** main
+**Tasks:** T-005, T-006, T-007 (agent tests were pre-existing), T-008
+
+### What was done
+
+**T-005 - `aahp status --quick`:**
+- Added `--quick` / `-q` flag to existing `status` command
+- Added `--project` / `-p` flag to point at a specific project directory
+- Quick mode reads `.ai/handoff/MANIFEST.json` from cwd (or `--project` path)
+- Shows: project name, phase, backend/agent, last run timestamp, commit SHA, tasks breakdown (active/ready/blocked/done), last log line
+- No network calls, no root scan - instant read from local handoff files
+
+**T-006 - `aahp archive`:**
+- New `archive` command added to cli.ts
+- Moves `.ai/handoff/LOG.md` to `.ai/handoff/logs/LOG-YYYY-MM-DD.md`
+- Creates a fresh `LOG.md` with project name header and archive timestamp
+- Keeps last N archived logs (`--keep N`, default 10); prunes oldest beyond limit
+- Handles duplicate archive names on the same day (counter suffix)
+- Supports `--dry-run` flag to preview without changes
+- Supports `--project` flag to target a different directory
+- 14 tests in `src/archive.test.ts`
+
+**T-008 - Retry with exponential backoff:**
+- `withRetry<T>(fn, opts)` exported from `agent.ts`
+- Configurable: `maxRetries` (default 3), `baseDelayMs` (default 1000), `onRetry` callback
+- Delay schedule: `baseDelayMs * 2^(attempt-1)` (1s, 2s, 4s by default)
+- Retries both thrown errors and `success=false` results
+- Non-retryable immediately: "No agent backend", "Claude Code CLI not found", "GitHub Copilot token not found", "token invalid or expired"
+- `runAgent()` accepts optional `retryOptions` parameter
+- 18 tests in `src/retry.test.ts`
+
+**Tests:** 160 total (up from 128). All passing.
+
+### Decisions made
+
+- `status --quick` extends the existing command rather than a new top-level subcommand to avoid name conflict with the full project-scan `status`
+- `archive` creates `logs/` inside `.ai/handoff/` to keep archives co-located with handoff files
+- `withRetry` is a standalone exported utility (not baked into each backend function) so callers can opt in and configure per-use
+- Non-retryable list uses `includes()` substring match to catch variations of the error messages
+
+---
+
 ## [2026-02-27] Claude Opus 4.6: Add GitHub Actions CI pipeline (T-001)
 
 **Agent:** Claude Opus 4.6
