@@ -670,7 +670,6 @@ export async function runPlanningAgent(
     })
   } else if (backend === 'copilot') {
     // Copilot via GitHub API (same model as runViaCopilot but with planning prompt)
-    const { default: fetch } = await import('node-fetch')
     const messages = [{ role: 'user', content: prompt }]
     const MODEL = 'gpt-4o'
     try {
