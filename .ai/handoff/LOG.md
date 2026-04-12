@@ -6,6 +6,38 @@
 
 ---
 
+## [2026-04-12] Claude Sonnet 4.6: T-010 + T-011 + T-012
+
+> **Agent:** claude-sonnet-4-6
+> **Session ID:** T-010-T-011-T-012-2026-04-12
+> **Timestamp:** 2026-04-12T14:06:00.000Z
+
+**What was done:**
+
+- T-010: Merged Dependabot PRs #15 (@types/node), #17 (vite 8.0.5), #14 (TypeScript 6.0) via `gh pr merge`
+- T-010: Resolved PR #16 (@anthropic-ai/sdk 0.82.0) manually - package-lock conflict from earlier merges
+- T-010: Removed `import('node-fetch')` from `runPlanningAgent` - TypeScript 6.0 rejected it; unnecessary in Node 20+ (native fetch available)
+- T-010: `npm install` confirmed 0 vulnerabilities; all 5 Dependabot security alerts resolved
+- T-011: `npm test` - 174 tests passing in 11 suites (up from 160; includes tests added since last run)
+- T-012: Bumped package version to 0.2.0; renamed package to `@elvatis_com/aahp-runner`
+- T-012: Fixed README install command (`npm install -g @elvatis_com/aahp-runner`)
+- T-012: Ran `npm pkg fix` to correct bin paths and normalize repository URL
+- T-012: Created GitHub release v0.2.0; autopublish workflow triggered and succeeded
+
+**Decisions made:**
+
+- Merged PRs #15/#17/#14 via GitHub CLI merge (not squash/rebase) to preserve Dependabot commit metadata
+- PR #16 conflict resolved by editing package.json directly + `npm install` to regenerate lock; cleaner than interactive rebase on Dependabot branch
+- node-fetch removal: Node 20 (minimum engine) has native `fetch` globally; the import was dead code anyway (no `node-fetch` in package.json)
+- Used GitHub release to trigger autopublish rather than `npm publish` locally (no npm token on this machine; workflow has NPM_TOKEN secret)
+
+**Open items:**
+
+- GitHub Actions: actions/checkout@v4 and setup-node@v4 will warn on Node 20 deprecation (non-urgent, deadline Sep 2026)
+- vscode-extension/ directory not reviewed this session
+
+---
+
 ## [2026-03-19] Claude Sonnet 4.6: T-005 + T-006 + T-008
 
 **Agent:** Claude Sonnet 4.6

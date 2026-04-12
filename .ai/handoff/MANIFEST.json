@@ -3,57 +3,57 @@
   "project": "aahp-runner",
   "last_session": {
     "agent": "claude-sonnet-4-6",
-    "session_id": "T-005-T-006-T-008-2026-03-19",
-    "timestamp": "2026-03-19T05:19:00.000Z",
-    "commit": "(pending)",
-    "phase": "implement",
-    "duration_minutes": 4
+    "session_id": "T-010-T-011-T-012-2026-04-12",
+    "timestamp": "2026-04-12T14:06:00.000Z",
+    "commit": "66ce053",
+    "phase": "done",
+    "duration_minutes": 8
   },
   "files": {
     "STATUS.md": {
-      "checksum": "sha256:(pending)",
-      "updated": "2026-03-19T05:19:00Z",
-      "lines": 52,
-      "summary": "v0.2.0: status --quick, archive command, withRetry. 160 tests passing."
+      "checksum": "sha256:c5f6849cc65af21a8e0c393ac874e2b8b3d18a08314f816d106f9ece83e1e4b2",
+      "updated": "2026-04-12T14:06:00Z",
+      "lines": 103,
+      "summary": "v0.2.0: all 12 tasks done, 174 tests passing, 0 security alerts, published to npm."
     },
     "NEXT_ACTIONS.md": {
-      "checksum": "sha256:(pending)",
-      "updated": "2026-03-19T05:19:00Z",
-      "lines": 80,
-      "summary": "T-009 dry-run mode remaining"
+      "checksum": "sha256:c66adf4d268f6fbe00c55b4fe7b4b3a7b3f5c75c6d2a471bc213b04b305471c4",
+      "updated": "2026-04-12T14:06:00Z",
+      "lines": 51,
+      "summary": "No open tasks. Future: Node 24 CI upgrade, VS Code extension review, CHANGELOG."
     },
     "LOG.md": {
-      "checksum": "sha256:(pending)",
-      "updated": "2026-03-19T05:19:00Z",
-      "lines": 60,
-      "summary": "T-005+T-006+T-008 implemented: status --quick, archive, withRetry"
+      "checksum": "sha256:0912b39cfb1d6f0541cc4703c2e5487ec07d40c25b939d04c2bd8290128052a1",
+      "updated": "2026-04-12T14:06:00Z",
+      "lines": 162,
+      "summary": "T-010/T-011/T-012 done: deps merged, 174 tests pass, v0.2.0 published."
     },
     "DASHBOARD.md": {
-      "checksum": "sha256:(pending)",
-      "updated": "2026-03-19T05:19:00Z",
-      "lines": 60,
-      "summary": "160 tests passing. CI green. 3 tasks done this session."
+      "checksum": "sha256:c80de38f9d2658c6c1ad8ccbc326379902781b410373e1413a76bf245178bbc4",
+      "updated": "2026-04-12T14:06:00Z",
+      "lines": 112,
+      "summary": "174 tests. All 5 security alerts fixed. v0.2.0 on npm. All 12 tasks done."
     },
     "TRUST.md": {
-      "checksum": "sha256:(pending)",
+      "checksum": "sha256:0e69f8262082f9a7fa0796061c0080d0280d509d7fa3e60fa28032a66ea7a696",
       "updated": "2026-02-27T02:31:15Z",
-      "lines": 55,
+      "lines": 76,
       "summary": "Build verified. CLI assumed. Scheduler untested."
     },
     "CONVENTIONS.md": {
-      "checksum": "sha256:(pending)",
+      "checksum": "sha256:38aed29c4e3ce6912dec72778d311de7550466b183aad83799b2dcf6a73d7d50",
       "updated": "2026-02-27T02:31:15Z",
-      "lines": 65,
+      "lines": 120,
       "summary": "TypeScript/ESM conventions, commit format, file organization"
     },
     "WORKFLOW.md": {
-      "checksum": "sha256:(pending)",
+      "checksum": "sha256:4681020d052ba664f02915d86823eed3406710c1850854e17e1dee8638cfadec",
       "updated": "2026-02-27T02:31:15Z",
-      "lines": 85,
+      "lines": 132,
       "summary": "4-phase pipeline: research, architect, implement, review"
     }
   },
-  "quick_context": "aahp-runner v0.1.0: autonomous AAHP agent runner. Scanner bug fixes applied (null guards, config root). AI Workflow Framework integrated. 4 Dependabot PRs open (#14-#17). 3 vite security alerts. Next: merge PRs (T-010), run tests (T-011), publish v0.2.0 (T-012).",
+  "quick_context": "aahp-runner v0.2.0 published to npm as @elvatis_com/aahp-runner. All 12 AAHP tasks complete. 174 Vitest tests passing under TypeScript 6.0. All Dependabot PRs merged; all 5 security alerts resolved. No open tasks - next session should identify new work.",
   "token_budget": {
     "manifest_only": 80,
     "manifest_plus_core": 1200,
@@ -102,7 +102,7 @@
       "completed": "2026-03-19T05:19:00.000Z",
       "github_issue": 1,
       "github_repo": "homeofe/aahp-runner",
-      "notes": "Implemented as `aahp status --quick` flag. Reads .ai/handoff/MANIFEST.json in cwd (or --project path). Shows: project, phase, backend, last run, commit, tasks summary, last log line."
+      "notes": "Implemented as `aahp status --quick` flag. Reads .ai/handoff/MANIFEST.json in cwd (or --project path)."
     },
     "T-006": {
       "title": "Add `aahp archive` command for LOG.md rotation",
@@ -113,7 +113,7 @@
       "completed": "2026-03-19T05:19:00.000Z",
       "github_issue": 2,
       "github_repo": "homeofe/aahp-runner",
-      "notes": "New `aahp archive` command. Moves LOG.md to .ai/handoff/logs/LOG-YYYY-MM-DD.md. Creates fresh LOG.md with header. Prunes old archives beyond --keep N (default 10). Supports --dry-run and --project flags. 14 tests."
+      "notes": "New `aahp archive` command. Moves LOG.md to .ai/handoff/logs/LOG-YYYY-MM-DD.md. 14 tests."
     },
     "T-007": {
       "title": "Add agent execution tests",
@@ -135,7 +135,7 @@
       "completed": "2026-03-19T05:19:00.000Z",
       "github_issue": 4,
       "github_repo": "homeofe/aahp-runner",
-      "notes": "withRetry<T>() exported from agent.ts. Configurable maxRetries (default 3), baseDelayMs (default 1000). Exponential schedule: baseDelayMs * 2^(attempt-1). Non-retryable: no backend, auth errors. onRetry callback. 18 tests in src/retry.test.ts. runAgent() accepts optional retryOptions."
+      "notes": "withRetry<T>() exported from agent.ts. 18 tests in src/retry.test.ts."
     },
     "T-009": {
       "title": "Add --dry-run flag to aahp run",
@@ -149,24 +149,30 @@
     },
     "T-010": {
       "title": "Merge Dependabot PRs and fix security alerts",
-      "status": "ready",
+      "status": "done",
       "priority": "high",
       "depends_on": [],
-      "created": "2026-04-12T16:00:00Z"
+      "created": "2026-04-12T16:00:00Z",
+      "completed": "2026-04-12T14:04:00.000Z",
+      "notes": "PRs #15/#17/#14 merged via gh CLI. PR #16 resolved manually (package-lock conflict). node-fetch import removed from agent.ts. 0 vulnerabilities."
     },
     "T-011": {
       "title": "Run tests after scanner bug fixes",
-      "status": "ready",
+      "status": "done",
       "priority": "medium",
       "depends_on": ["T-010"],
-      "created": "2026-04-12T16:00:00Z"
+      "created": "2026-04-12T16:00:00Z",
+      "completed": "2026-04-12T14:04:30.000Z",
+      "notes": "174 tests passing in 11 suites under TypeScript 6.0 and @anthropic-ai/sdk 0.82."
     },
     "T-012": {
       "title": "Publish v0.2.0 to npm",
-      "status": "ready",
+      "status": "done",
       "priority": "medium",
       "depends_on": ["T-010", "T-011"],
-      "created": "2026-04-12T16:00:00Z"
+      "created": "2026-04-12T16:00:00Z",
+      "completed": "2026-04-12T14:06:00.000Z",
+      "notes": "Package renamed to @elvatis_com/aahp-runner. README fixed. GitHub release v0.2.0 created. Autopublish workflow succeeded."
     }
   }
 }
