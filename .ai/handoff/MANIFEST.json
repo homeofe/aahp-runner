@@ -53,13 +53,13 @@
       "summary": "4-phase pipeline: research, architect, implement, review"
     }
   },
-  "quick_context": "aahp-runner v0.2.0: autonomous AAHP agent runner. 3 backends, 11 commands (added archive, enhanced status --quick). withRetry exponential backoff exported from agent.ts. 160 Vitest tests. T-009 dry-run mode still open.",
+  "quick_context": "aahp-runner v0.1.0: autonomous AAHP agent runner. Scanner bug fixes applied (null guards, config root). AI Workflow Framework integrated. 4 Dependabot PRs open (#14-#17). 3 vite security alerts. Next: merge PRs (T-010), run tests (T-011), publish v0.2.0 (T-012).",
   "token_budget": {
     "manifest_only": 80,
     "manifest_plus_core": 1200,
     "full_read": 4500
   },
-  "next_task_id": 10,
+  "next_task_id": 13,
   "tasks": {
     "T-001": {
       "title": "Add GitHub Actions CI pipeline",
@@ -139,12 +139,34 @@
     },
     "T-009": {
       "title": "Add --dry-run flag to aahp run",
-      "status": "ready",
+      "status": "done",
       "priority": "low",
       "depends_on": [],
       "created": "2026-03-02T12:00:00Z",
       "github_issue": 5,
-      "github_repo": "homeofe/aahp-runner"
+      "github_repo": "homeofe/aahp-runner",
+      "completed": "2026-04-12T13:54:06.855Z"
+    },
+    "T-010": {
+      "title": "Merge Dependabot PRs and fix security alerts",
+      "status": "ready",
+      "priority": "high",
+      "depends_on": [],
+      "created": "2026-04-12T16:00:00Z"
+    },
+    "T-011": {
+      "title": "Run tests after scanner bug fixes",
+      "status": "ready",
+      "priority": "medium",
+      "depends_on": ["T-010"],
+      "created": "2026-04-12T16:00:00Z"
+    },
+    "T-012": {
+      "title": "Publish v0.2.0 to npm",
+      "status": "ready",
+      "priority": "medium",
+      "depends_on": ["T-010", "T-011"],
+      "created": "2026-04-12T16:00:00Z"
     }
   }
 }
