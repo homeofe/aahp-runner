@@ -44,7 +44,7 @@ Together they cover the full AAHP loop: you guide during the day → the runner 
 ## Setup
 
 ```bash
-npm install -g aahp-runner
+npm install -g @elvatis_com/aahp-runner
 
 # Configure once (API key only needed for --backend sdk)
 aahp config --root "E:\_Development"
