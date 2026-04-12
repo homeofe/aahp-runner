@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(npm run*)",
+      "Bash(npm test*)",
+      "Bash(npx vitest*)",
+      "Bash(node*)",
+      "Bash(sha256sum*)",
+      "Bash(wc*)",
+      "Bash(ls*)"
+    ],
+    "deny": [
+      "Bash(rm -rf*)",
+      "Bash(git push --force*)",
+      "Bash(git reset --hard*)"
+    ]
+  }
+}
