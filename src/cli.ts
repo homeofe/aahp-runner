@@ -69,7 +69,7 @@ function getLastLogLine(repoName: string, repoPath?: string): string {
 program
   .command('list')
   .description('List AAHP projects that have actionable tasks')
-  .option('-r, --root <path>', 'Root development folder', DEFAULT_ROOT)
+  .option('-r, --root <path>', 'Root development folder')
   .option('-a, --all', 'Show every task per project (with GitHub issue links)')
   .action((opts: { root: string; all: boolean }) => {
     const config = loadConfig()
@@ -108,7 +108,7 @@ program
     if (opts.all) {
       // ── Expanded mode: one sub-row per task with GitHub issue link ────────
       const W_NAME  = Math.min(28, Math.max(12, ...displayProjects.map(p => p.name.length)))
-      const W_PHASE = Math.min(14, Math.max(5,  ...displayProjects.map(p => (p.manifest.last_session.phase ?? '').length)))
+      const W_PHASE = Math.min(14, Math.max(5,  ...displayProjects.map(p => (p.manifest.last_session?.phase ?? '').length)))
       const W_ID    = 6   // T-NNN
       const W_PRI   = 3   // hig/med/low
       const W_GH    = 6   // #12345
@@ -143,7 +143,7 @@ program
 
       for (let pi = 0; pi < displayProjects.length; pi++) {
         const project = displayProjects[pi]!
-        const phase = project.manifest.last_session.phase ?? ''
+        const phase = project.manifest.last_session?.phase ?? ''
         const taskRows = [
           ...project.activeTasks,
           ...project.readyTasks,
@@ -169,7 +169,7 @@ program
             const nameStr  = isFirst ? project.name : ''
             const phaseStr = isFirst ? phase : ''
             const icon  = ICON[task.status] ?? '•'
-            const pri   = task.priority.slice(0, 3)
+            const pri   = (task.priority ?? 'med').slice(0, 3)
             const gh    = task.github_issue ? `#${task.github_issue}` : ''
             const title = `${icon} ${task.title}`
 
@@ -231,7 +231,7 @@ program
     // ── Default mode: one row per project, top task only (unchanged) ─────────
     const actionable = displayProjects
     const W_NAME  = Math.min(30, Math.max(12, ...actionable.map(p => p.name.length)))
-    const W_PHASE = Math.min(16, Math.max(5,  ...actionable.map(p => (p.manifest.last_session.phase ?? '').length)))
+    const W_PHASE = Math.min(16, Math.max(5,  ...actionable.map(p => (p.manifest.last_session?.phase ?? '').length)))
     const W_CNT   = 5
     const W_TASK  = Math.max(20, termWidth - W_NAME - W_PHASE - W_CNT - 13)
 
@@ -257,14 +257,14 @@ program
     for (const project of actionable) {
       const topTask  = getTopTask(project)
       const taskCount = project.readyTasks.length + project.activeTasks.length + project.blockedTasks.length + project.cancelledTasks.length
-      const phase    = project.manifest.last_session.phase ?? ''
+      const phase    = project.manifest.last_session?.phase ?? ''
       const isActive = project.activeTasks.length > 0
 
       let taskStr = ''
       if (topTask) {
         const [id, task] = topTask
         const icon   = ICON[task.status] ?? '•'
-        const pri    = task.priority.slice(0, 3)
+        const pri    = (task.priority ?? 'med').slice(0, 3)
         const gh     = task.github_issue ? ` #${task.github_issue}` : ''
         const titleBudget = W_TASK - id.length - pri.length - gh.length - 6
         const title  = trunc(task.title, Math.max(8, titleBudget))
@@ -303,7 +303,7 @@ program
 program
   .command('run [project]')
   .description('Run the agent on a project\'s top task. Omit project to pick interactively.')
-  .option('-r, --root <path>', 'Root development folder', DEFAULT_ROOT)
+  .option('-r, --root <path>', 'Root development folder')
   .option('--all', 'Run all projects with ready tasks sequentially')
   .option('--yes', 'Skip confirmation prompts (for scheduled/unattended runs)')
   .option('-l, --limit <n>', 'Max agents to run in parallel (0 = unlimited)', '0')
@@ -1101,7 +1101,7 @@ program
 program
   .command('status')
   .description('Show live running agents and quick status overview')
-  .option('-r, --root <path>', 'Root development folder', DEFAULT_ROOT)
+  .option('-r, --root <path>', 'Root development folder')
   .option('-w, --watch', 'Refresh every 3 seconds (Ctrl+C to stop)')
   .option('-q, --quick', 'Quick-look: show current project status from .ai/handoff/ (reads local directory)')
   .option('-p, --project <path>', 'Project directory for --quick mode (default: cwd)')
@@ -1218,7 +1218,7 @@ program
       // Column widths - match aahp list style
       const termWidth = process.stdout.columns || 100
       const W_NAME  = Math.min(26, Math.max(12, ...projects.map(p => p.name.length)))
-      const W_PHASE = Math.min(14, Math.max(5,  ...projects.map(p => (p.manifest.last_session.phase ?? '').length)))
+      const W_PHASE = Math.min(14, Math.max(5,  ...projects.map(p => (p.manifest.last_session?.phase ?? '').length)))
       const W_CNT   = 5
       // Icon col fixed at 4 visible (space + emoji(2) + space), borders add 13 more
       const W_ACT   = Math.max(20, termWidth - W_NAME - W_PHASE - W_CNT - 4 - 13)
@@ -1258,7 +1258,7 @@ program
         const isLive = !!liveSession
         const top = getTopTask(p)
         const taskCount = p.readyTasks.length + p.activeTasks.length + p.blockedTasks.length + p.cancelledTasks.length
-        const phase = p.manifest.last_session.phase ?? ''
+        const phase = p.manifest.last_session?.phase ?? ''
 
         const icon = isLive ? ICON['live']! :
           taskCount > 0 ? ICON['ready']! :
@@ -1516,7 +1516,7 @@ program
 program
   .command('plan [project]')
   .description('Run a planning agent on idle repos to generate new NEXT_ACTIONS.md tasks')
-  .option('-r, --root <path>', 'Root development folder', DEFAULT_ROOT)
+  .option('-r, --root <path>', 'Root development folder')
   .option('-a, --all', 'Plan ALL idle repos, not just the first one')
   .option('-y, --yes', 'Skip confirmation prompts')
   .option('--local', 'Include local-only repos (no GitHub remote)')
@@ -1595,7 +1595,7 @@ program
 program
   .command('overnight')
   .description('Full autonomous loop: plan idle repos, run all agents, commit+push. Repeats until --hours expires.')
-  .option('-r, --root <path>', 'Root development folder', DEFAULT_ROOT)
+  .option('-r, --root <path>', 'Root development folder')
   .option('-y, --yes', 'Skip all confirmation prompts')
   .option('--hours <n>', 'Stop after N hours (0 = run forever)', '8')
   .option('--limit <n>', 'Max concurrent agents per cycle', '5')

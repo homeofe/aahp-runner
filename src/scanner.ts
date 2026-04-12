@@ -203,7 +203,7 @@ export function deduplicateGitHubIssues(
   // Remove or cancel MANIFEST tasks linked to closed duplicate issues
   const tasks = manifest.tasks ?? {}
   let changed = false
-  for (const [taskId, task] of Object.entries(tasks)) {
+  for (const [taskId, task] of Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null)) {
     if (typeof task.github_issue === 'number' && closedNums.has(task.github_issue)) {
       onLog?.(`[DEDUP] ${taskId} linked to closed duplicate #${task.github_issue} — removing from manifest`)
       delete tasks[taskId]
@@ -229,7 +229,7 @@ export function createMissingGitHubIssues(
   if (!repo) return manifest
 
   const tasks = manifest.tasks ?? {}
-  const toCreate = Object.entries(tasks).filter(
+  const toCreate = Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null).filter(
     ([, t]) => !t.github_issue &&
       (t.status === 'ready' || t.status === 'in_progress' || t.status === 'blocked')
   ) as Array<[string, AahpTask]>
@@ -367,7 +367,7 @@ export function fetchAndImportGitHubIssues(
   let changed = false
 
   // Migration: normalize any legacy string URL github_issue values to plain numbers
-  for (const task of Object.values(tasks)) {
+  for (const task of Object.values(tasks).filter((t): t is AahpTask => t != null).filter((t): t is AahpTask => t != null)) {
     if (typeof (task.github_issue as unknown) === 'string') {
       const num = extractIssueNumber(task.github_issue)
       if (num !== undefined) {
@@ -382,21 +382,21 @@ export function fetchAndImportGitHubIssues(
 
   // Build a set of already-imported issue numbers
   const importedIssueNumbers = new Set(
-    Object.values(tasks)
+    Object.values(tasks).filter((t): t is AahpTask => t != null)
       .map(t => t.github_issue)
       .filter((n): n is number => typeof n === 'number')
   )
 
   // Reverse map: issue number → taskId, for updating status when issues are closed
   const issueNumToTaskId = new Map(
-    Object.entries(tasks)
+    Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null)
       .filter(([, t]) => typeof t.github_issue === 'number')
       .map(([id, t]) => [t.github_issue as number, id])
   )
 
   // Build a normalized-title → taskId lookup for title-based fallback matching
   const titleToTaskId = new Map(
-    Object.entries(tasks)
+    Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null)
       .filter(([, t]) => !t.github_issue)
       .map(([id, t]) => [normalizeTitle(t.title), id])
   )
@@ -612,13 +612,13 @@ export function syncNextActionsToManifest(
   const tasks = manifest.tasks ?? {}
   let nextId = manifest.next_task_id ?? (Object.keys(tasks).length + 1)
   let changed = false
-  const existingTitles = new Set(Object.values(tasks).map(t => normalizeTitle(t.title)))
+  const existingTitles = new Set(Object.values(tasks).filter((t): t is AahpTask => t != null).map(t => normalizeTitle(t.title)))
 
   for (const item of actionable) {
     if (item.taskId && tasks[item.taskId]) continue
     if (existingTitles.has(normalizeTitle(item.title))) continue
     // Fuzzy dedup: skip if a very similar task already exists (>= 65% word overlap)
-    if (Object.values(tasks).some(t => titleSimilarity(item.title, t.title) >= 0.65)) continue
+    if (Object.values(tasks).filter((t): t is AahpTask => t != null).some(t => titleSimilarity(item.title, t.title) >= 0.65)) continue
 
     while (tasks[`T-${String(nextId).padStart(3, '0')}`]) nextId++
     const taskId = item.taskId ?? `T-${String(nextId).padStart(3, '0')}`
@@ -684,11 +684,11 @@ export function extractReadmeNextSteps(
   const tasks = manifest.tasks ?? {}
   let nextId = manifest.next_task_id ?? (Object.keys(tasks).length + 1)
   let changed = false
-  const existingTitles = new Set(Object.values(tasks).map(t => normalizeTitle(t.title)))
+  const existingTitles = new Set(Object.values(tasks).filter((t): t is AahpTask => t != null).map(t => normalizeTitle(t.title)))
 
   for (const title of items) {
     if (existingTitles.has(normalizeTitle(title))) continue
-    if (Object.values(tasks).some(t => titleSimilarity(title, t.title) >= 0.65)) continue
+    if (Object.values(tasks).filter((t): t is AahpTask => t != null).some(t => titleSimilarity(title, t.title) >= 0.65)) continue
 
     while (tasks[`T-${String(nextId).padStart(3, '0')}`]) nextId++
     const taskId = `T-${String(nextId).padStart(3, '0')}`
@@ -727,7 +727,7 @@ export function annotateNextActionsWithIssues(
   // Build lookups: taskId → issueNumber, normalizedTitle → issueNumber
   const taskIdToIssue = new Map<string, number>()
   const normTitleToIssue = new Map<string, number>()
-  for (const [id, task] of Object.entries(tasks)) {
+  for (const [id, task] of Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null)) {
     if (typeof task.github_issue === 'number' && task.github_issue > 0) {
       taskIdToIssue.set(id.toUpperCase(), task.github_issue)
       normTitleToIssue.set(normalizeTitle(task.title), task.github_issue)
@@ -832,19 +832,19 @@ export function scanProjects(rootDir: string): AahpProject[] {
     annotateNextActionsWithIssues(handoffDir, manifest.tasks ?? {}, repoLog)
 
     const tasks = manifest.tasks ?? {}
-    const readyTasks = Object.entries(tasks).filter(
+    const readyTasks = Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null).filter(
       ([, t]) => t.status === 'ready'
     ) as Array<[string, AahpTask]>
-    const activeTasks = Object.entries(tasks).filter(
+    const activeTasks = Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null).filter(
       ([, t]) => t.status === 'in_progress'
     ) as Array<[string, AahpTask]>
-    const blockedTasks = Object.entries(tasks).filter(
+    const blockedTasks = Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null).filter(
       ([, t]) => t.status === 'blocked'
     ) as Array<[string, AahpTask]>
-    const cancelledTasks = Object.entries(tasks).filter(
+    const cancelledTasks = Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null).filter(
       ([, t]) => t.status === 'cancelled'
     ) as Array<[string, AahpTask]>
-    const doneTasks = Object.entries(tasks).filter(
+    const doneTasks = Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null).filter(
       ([, t]) => t.status === 'done'
     ) as Array<[string, AahpTask]>
 
@@ -937,19 +937,19 @@ export function scanProjectByPath(repoPath: string): AahpProject | undefined {
   annotateNextActionsWithIssues(handoffDir, manifest.tasks ?? {}, repoLog)
 
   const tasks = manifest.tasks ?? {}
-  const readyTasks = Object.entries(tasks).filter(
+  const readyTasks = Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null).filter(
     ([, t]) => t.status === 'ready'
   ) as Array<[string, AahpTask]>
-  const activeTasks = Object.entries(tasks).filter(
+  const activeTasks = Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null).filter(
     ([, t]) => t.status === 'in_progress'
   ) as Array<[string, AahpTask]>
-  const blockedTasks = Object.entries(tasks).filter(
+  const blockedTasks = Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null).filter(
     ([, t]) => t.status === 'blocked'
   ) as Array<[string, AahpTask]>
-  const cancelledTasks = Object.entries(tasks).filter(
+  const cancelledTasks = Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null).filter(
     ([, t]) => t.status === 'cancelled'
   ) as Array<[string, AahpTask]>
-  const doneTasks = Object.entries(tasks).filter(
+  const doneTasks = Object.entries(tasks).filter((e): e is [string, AahpTask] => e[1] != null).filter(
     ([, t]) => t.status === 'done'
   ) as Array<[string, AahpTask]>
 
