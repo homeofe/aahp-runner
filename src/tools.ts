@@ -166,14 +166,16 @@ export async function executeTool(
           'git', 'npm', 'pnpm', 'node', 'npx', 'tsc', 'vitest',
           'jest', 'echo', 'ls', 'dir', 'cat', 'type', 'pwd',
         ]
-        // Extract leading binary for allowlist validation
-        const binary = cmd.trim().split(/\s+/)[0] ?? ''
-        if (!ALLOWED_COMMANDS.includes(binary.toLowerCase())) {
-          return `ERROR: Command "${binary}" is not allowed. Permitted commands: ${ALLOWED_COMMANDS.join(', ')}`
+        // Parse command into [binary, ...args] to avoid passing the whole string
+        // to the shell (prevents command injection via shell metacharacters)
+        const [binary, ...args] = parseCommand(cmd)
+        if (!binary || !ALLOWED_COMMANDS.includes(binary.toLowerCase())) {
+          return `ERROR: Command "${binary ?? ''}" is not allowed. Permitted commands: ${ALLOWED_COMMANDS.join(', ')}`
         }
-        // Run the full command through the shell so quotes and special
-        // characters are handled correctly (e.g. node -e "console.log(42)")
-        const result = await runAsync(cmd, [], cwd, 60000, true)
+        // shell=true only on Windows where npm/npx/tsc ship as .cmd files;
+        // on POSIX we pass args directly so no shell expansion occurs
+        const useShell = process.platform === 'win32'
+        const result = await runAsync(binary, args, cwd, 60000, useShell)
         if (result.code === null) {
           return `EXIT ERROR: command timed out`
         }
@@ -212,6 +214,27 @@ export async function executeTool(
   } catch (e: unknown) {
     return `ERROR: ${String(e)}`
   }
+}
+
+/** Split a shell-like command string into [binary, ...args] respecting quoted strings. */
+function parseCommand(cmd: string): string[] {
+  const tokens: string[] = []
+  let current = ''
+  let quote: '"' | "'" | null = null
+  for (const ch of cmd) {
+    if (quote) {
+      if (ch === quote) quote = null
+      else current += ch
+    } else if (ch === '"' || ch === "'") {
+      quote = ch
+    } else if (ch === ' ' || ch === '\t') {
+      if (current) { tokens.push(current); current = '' }
+    } else {
+      current += ch
+    }
+  }
+  if (current) tokens.push(current)
+  return tokens
 }
 
 function resolveSafe(filePath: string, repoPath: string): string {
