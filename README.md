@@ -46,7 +46,11 @@ Together they cover the full AAHP loop: you guide during the day → the runner 
 ```bash
 npm install -g @elvatis_com/aahp-runner
 
-# Configure once (API key only needed for --backend sdk)
+# 1. Bootstrap AAHP handoff files in each repo you want to manage
+cd my-project
+aahp init
+
+# 2. Configure the runner (API key only needed for --backend sdk)
 aahp config --root "E:\_Development"
 
 # For SDK backend (direct Anthropic API)
@@ -60,6 +64,44 @@ export ANTHROPIC_API_KEY="sk-ant-..."   # only needed for --backend sdk
 ---
 
 ## Commands
+
+### `aahp init` — bootstrap a new project
+
+Creates the full `.ai/handoff/` directory structure from official [AAHP v3 templates](https://github.com/homeofe/AAHP). Run this once in any repo you want to manage with aahp-runner.
+
+```bash
+aahp init                    # bootstrap in current directory
+aahp init ./my-project       # bootstrap in a specific directory
+aahp init --force            # overwrite any existing handoff files
+```
+
+**What it creates:**
+
+```
+.ai/handoff/
+  MANIFEST.json      task registry + session metadata (AAHP v3 schema)
+  STATUS.md          current system state template
+  NEXT_ACTIONS.md    task queue template (edit to add your first tasks)
+  LOG.md             agent journal (append-only)
+  LOG-ARCHIVE.md     overflow archive for LOG.md rotation
+  DASHBOARD.md       build health + pipeline state dashboard
+  CONVENTIONS.md     agent coding conventions (edit for your stack)
+  TRUST.md           verification confidence register
+  WORKFLOW.md        multi-agent pipeline definition
+  .aiignore          safety firewall (blocks secrets/PII from handoff files)
+```
+
+Also appends `.ai/logs/` to `.gitignore` (agent run logs should not be committed).
+
+Project name is auto-detected from `package.json` (`name` field, scope stripped), falling back to the directory name.
+
+**After `aahp init`:**
+1. Edit `NEXT_ACTIONS.md` - add your first tasks in T-001, T-002... format
+2. Edit `CONVENTIONS.md` - configure for your stack (remove TypeScript hints if Python, etc.)
+3. Run `aahp list` to verify the project is detected
+4. Run `aahp run` to launch an agent on your first task
+
+---
 
 ### `aahp list` — inspect task state
 
@@ -234,7 +276,7 @@ rootDir/
 ## Requirements
 
 - Node.js >= 20
-- Repos with AAHP v3 `.ai/handoff/MANIFEST.json` ([spec](https://github.com/homeofe/AAHP))
+- Repos bootstrapped with `aahp init` (creates `.ai/handoff/MANIFEST.json` per [AAHP v3 spec](https://github.com/homeofe/AAHP))
 - One of: Claude Code extension, GitHub Copilot (`gh auth login`), or Anthropic API key (`--backend sdk`)
 - `gh` CLI for GitHub issue sync (`gh auth login`)
 

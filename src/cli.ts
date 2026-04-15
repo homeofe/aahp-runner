@@ -7,6 +7,7 @@ import os from 'os'
 import * as readline from 'readline'
 import { scanProjects, scanProjectByPath, bootstrapProject, scanAllGitRepos, getTopTask } from './scanner.js'
 import { runAgent, runPlanningAgent } from './agent.js'
+import { initProject } from './init.js'
 import { runAsync } from './tools.js'
 import { loadConfig, saveConfig, registerScheduler, unregisterScheduler } from './scheduler.js'
 import { StatusBoard, AgentStatus, LOG_DIR, agentLogPath, writeLog } from './status-board.js'
@@ -1509,6 +1510,49 @@ program
     }
     const remaining = allArchives.length - pruned + 1
     console.log(chalk.gray(`  📁 ${remaining} archive(s) in .ai/handoff/logs/`))
+    console.log()
+  })
+
+// ── init — bootstrap AAHP v3 handoff files ───────────────────────────────────
+
+program
+  .command('init [path]')
+  .description('Bootstrap AAHP v3 handoff files (.ai/handoff/) in a project directory')
+  .option('-f, --force', 'Overwrite existing files (default: skip existing)')
+  .action((targetPath: string | undefined, opts: { force?: boolean }) => {
+    const targetDir = targetPath ? path.resolve(targetPath) : process.cwd()
+    const force = !!opts.force
+
+    if (!fs.existsSync(targetDir)) {
+      console.log(chalk.red(`Directory not found: ${targetDir}`))
+      process.exit(1)
+    }
+
+    console.log(chalk.bold(`\n🚀 AAHP Init\n`))
+    console.log(chalk.gray(`  Target: ${targetDir}`))
+    if (force) console.log(chalk.yellow('  --force: existing files will be overwritten'))
+    console.log()
+
+    const result = initProject(targetDir, force)
+
+    console.log(chalk.bold(`Project: ${result.projectName}`))
+    console.log(chalk.gray(`Handoff: ${result.handoffDir}\n`))
+
+    if (result.created.length > 0) {
+      console.log(chalk.green(`  Created (${result.created.length}):`))
+      for (const f of result.created) console.log(chalk.green(`    + ${f}`))
+    }
+    if (result.skipped.length > 0) {
+      console.log(chalk.gray(`\n  Skipped (${result.skipped.length}) - already exist:`))
+      for (const f of result.skipped) console.log(chalk.gray(`    - ${f}`))
+      console.log(chalk.gray(`\n  Run with --force to overwrite existing files.`))
+    }
+
+    console.log(chalk.bold('\n Next steps:\n'))
+    console.log(`  1. Edit ${chalk.cyan('.ai/handoff/NEXT_ACTIONS.md')} - add your first tasks`)
+    console.log(`  2. Edit ${chalk.cyan('.ai/handoff/CONVENTIONS.md')} - configure for your stack`)
+    console.log(`  3. Run   ${chalk.cyan('aahp list')} - verify the project is detected`)
+    console.log(`  4. Run   ${chalk.cyan('aahp run')} - launch an agent on your first task`)
     console.log()
   })
 
