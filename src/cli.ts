@@ -1843,26 +1843,38 @@ program
     console.log()
   })
 
+// Read version from package.json at runtime so --help always shows the current version
+const __pkgVersion = (() => {
+  try {
+    const pkgPath = new URL('../package.json', import.meta.url)
+    return JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version as string
+  } catch { return '0.0.0' }
+})()
+
 program
   .name('aahp')
-  .description('Autonomous AAHP agent runner - spawns Claude/Copilot agents to plan tasks, implement them, and commit')
-  .version('0.1.0')
+  .description('Autonomous agent runner for AAHP v3 projects - spawns Claude/Gemini/Codex/Copilot agents to plan tasks, implement them, and commit')
+  .version(__pkgVersion)
   .addHelpText('after', `
 Backends:
-  auto     Prefers Claude Code CLI, falls back to GitHub Copilot, then Anthropic SDK
-  claude   Claude Code CLI only (requires VS Code Claude Code extension)
-  copilot  GitHub Copilot only (requires: gh auth login with Copilot subscription)
-  sdk      Anthropic API key only
+  auto     Auto-detect: claude > gemini > codex > copilot > sdk (default)
+  claude   Claude Code CLI (requires VS Code Claude Code extension)
+  gemini   Google Gemini CLI (npm install -g @google/gemini-cli)
+  codex    OpenAI Codex CLI (npm install -g @openai/codex)
+  copilot  GitHub Copilot via gh CLI (gh auth login with Copilot subscription)
+  sdk      Anthropic API directly (requires ANTHROPIC_API_KEY)
 
 Autonomy modes:
   Single pass      aahp run --all --yes                   run current tasks, stop
-  Self-chaining    aahp run --all --yes --follow-up        run → plan idle → re-run, until done
+  Self-chaining    aahp run --all --yes --follow-up        run -> plan idle -> re-run, until done
   Overnight loop   aahp overnight --yes                    plan+run+commit cycle, 8h by default
   Forever daemon   aahp overnight --yes --hours 0          same, never stops (Ctrl+C)
   Scheduled        aahp schedule --time 02:00              OS-level daily trigger
 
 Examples:
   aahp                               Guided setup wizard
+  aahp init                          Bootstrap AAHP v3 handoff files in current repo
+  aahp init ./my-project --force     Bootstrap (overwrite existing files)
   aahp list                          Repos with actionable tasks
   aahp list --all                    Include idle repos (no tasks)
   aahp status                        Snapshot of live agents + project table
@@ -1870,8 +1882,11 @@ Examples:
 
   aahp run openclaw-ops              Run agent on one project (interactive confirm)
   aahp run --all --yes               Spawn agents on ALL projects in parallel
-  aahp run --all --yes --backend claude     Use Claude Code for all tasks
-  aahp run --all --yes --backend copilot    Use GitHub Copilot for all tasks
+  aahp run --all --yes --backend claude    Use Claude Code for all tasks
+  aahp run --all --yes --backend gemini    Use Google Gemini CLI for all tasks
+  aahp run --all --yes --backend codex     Use OpenAI Codex CLI for all tasks
+  aahp run --all --yes --backend copilot   Use GitHub Copilot for all tasks
+  aahp run --all --yes --backend sdk       Use Anthropic API directly
   aahp run --all --yes --limit 3     Cap at 3 concurrent agents
   aahp run --all --yes --timeout 15  Set per-agent timeout to 15 minutes
   aahp run --all --yes --follow-up   Run, then plan idle repos, re-run new tasks (chains)
@@ -1895,12 +1910,14 @@ Examples:
   aahp metrics --json                Export metrics as JSON
   aahp metrics --repo openclaw-ops --days 7
 
+  aahp config                        Show current config
   aahp config --root "E:\\_Development"     Set root folder
-  aahp config --backend copilot              Save default backend
-  aahp config --api-key sk-ant-...           Save Anthropic API key
+  aahp config --backend gemini               Save default backend
+  aahp config --api-key sk-ant-...           Save Anthropic API key (sdk backend only)
   aahp config --timeout 15                   Set default timeout (minutes)
   aahp config --alert-webhook <url>          Set webhook for alerts
   aahp config --alert-slack <url>            Set Slack webhook for alerts
+  aahp config --alert-clear                  Remove alert webhooks
 
   aahp schedule --time 02:00         Register nightly cron/Task Scheduler job
   aahp schedule --remove             Remove the scheduled job
@@ -1910,6 +1927,7 @@ Log locations:
   rootDir/.ai/logs/overnight-YYYY-MM-DD.log overnight loop log
   ~/.aahp/logs/                             fallback (legacy) log location
   ~/.aahp/metrics.jsonl                     run metrics (all repos, all time)
+  ~/.aahp/sessions.json                     live session state (used by VS Code extension)
 `)
 
 // ── Default: guided wizard when no command given ──────────────────────────────
