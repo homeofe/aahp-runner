@@ -375,7 +375,7 @@ async function runViaGeminiCLI(
   task: AahpTask,
   onLog: (msg: string) => void,
   timeoutMs: number = 10 * 60 * 1000,
-  model: string = 'gemini-2.5-pro'
+  model: string = 'gemini-3.1-pro'
 ): Promise<AgentResult> {
   // -p "" triggers headless mode; actual prompt arrives on stdin
   const args = ['-m', model, '-p', '', '--approval-mode', 'yolo']
@@ -392,7 +392,7 @@ async function runViaCodexCLI(
   task: AahpTask,
   onLog: (msg: string) => void,
   timeoutMs: number = 10 * 60 * 1000,
-  model: string = 'codex'
+  model: string = 'gpt-5.5'
 ): Promise<AgentResult> {
   const args = ['exec', '--model', model, '--full-auto']
   return runViaCLI('codex', args, project, taskId, task, `Codex/${model}`, onLog, timeoutMs)
@@ -840,7 +840,7 @@ export async function runPlanningAgent(
   if (backend === 'gemini') {
     // Gemini CLI planning: same stdin pattern, -p "" for headless mode
     await new Promise<void>((resolve) => {
-      const proc = spawn('gemini', ['-m', model ?? 'gemini-2.5-pro', '-p', '', '--approval-mode', 'yolo'],
+      const proc = spawn('gemini', ['-m', model ?? 'gemini-3.1-pro', '-p', '', '--approval-mode', 'yolo'],
         { cwd: project.repoPath, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'] })
       const timer = setTimeout(() => { proc.kill('SIGTERM') }, timeoutMs)
       proc.stdin.write(prompt)
@@ -858,7 +858,7 @@ export async function runPlanningAgent(
   } else if (backend === 'codex') {
     // Codex CLI planning: exec --full-auto with prompt via stdin
     await new Promise<void>((resolve) => {
-      const proc = spawn('codex', ['exec', '--model', model ?? 'codex', '--full-auto'],
+      const proc = spawn('codex', ['exec', '--model', model ?? 'gpt-5.5', '--full-auto'],
         { cwd: project.repoPath, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'] })
       const timer = setTimeout(() => { proc.kill('SIGTERM') }, timeoutMs)
       proc.stdin.write(prompt)

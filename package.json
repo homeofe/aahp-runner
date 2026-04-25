@@ -1,6 +1,6 @@
 {
   "name": "@elvatis_com/aahp-runner",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "Autonomous agent runner for AAHP v3 projects - spawns Claude agents to work through tasks across all repos",
   "license": "Apache-2.0",
   "author": "Elvatis <emre.kohler@elvatis.com>",

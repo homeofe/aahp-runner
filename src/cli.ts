@@ -1899,8 +1899,12 @@ Examples:
   aahp run --all --yes --backend codex     Use OpenAI Codex CLI for all tasks
   aahp run --all --yes --backend copilot   Use GitHub Copilot for all tasks
   aahp run --all --yes --backend sdk       Use Anthropic API directly
-  aahp run --all --yes --backend gemini --model gemini-2.5-flash   Use a specific model
-  aahp run --all --yes --backend sdk --model claude-opus-4-7       Use Anthropic SDK with Opus 4.7
+  aahp run --all --yes --backend gemini --model gemini-3.1-pro     Use a specific Gemini model
+  aahp run --all --yes --backend gemini --model gemini-3-flash     Use Gemini Flash (faster)
+  aahp run --all --yes --backend codex  --model gpt-5.5            Use Codex default (frontier)
+  aahp run --all --yes --backend codex  --model gpt-5.4-mini       Use Codex mini (faster/cheaper)
+  aahp run --all --yes --backend sdk    --model claude-opus-4-7    Use Anthropic SDK with Opus 4.7
+  aahp run --all --yes --backend sdk    --model claude-sonnet-4-6  Use Anthropic SDK with Sonnet 4.6
   aahp run --all --yes --limit 3     Cap at 3 concurrent agents
   aahp run --all --yes --timeout 15  Set per-agent timeout to 15 minutes
   aahp run --all --yes --follow-up   Run, then plan idle repos, re-run new tasks (chains)
@@ -1927,7 +1931,7 @@ Examples:
   aahp config                        Show current config
   aahp config --root "E:\\_Development"          Set root folder
   aahp config --backend gemini                    Save default backend
-  aahp config --model gemini-2.5-flash            Save default model for that backend
+  aahp config --model gemini-3.1-pro              Save default model for that backend
   aahp config --api-key sk-ant-...                Save Anthropic API key (sdk backend only)
   aahp config --timeout 15                        Set default timeout (minutes)
   aahp config --alert-webhook <url>               Set webhook for alerts

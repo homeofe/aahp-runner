@@ -44,10 +44,22 @@ Together they cover the full AAHP loop: you guide during the day → the runner 
 Use `--model` to override the model for any backend (models change frequently - pin the one you need):
 
 ```bash
-aahp run --all --yes --backend gemini --model gemini-2.5-flash
-aahp run --all --yes --backend sdk    --model claude-opus-4-7
-aahp run --all --yes --backend codex  --model o4-mini
-aahp config --model gemini-2.5-flash  # persist as default
+# Claude (SDK backend)
+aahp run --all --yes --backend sdk --model claude-opus-4-7     # Opus 4.7 - most capable
+aahp run --all --yes --backend sdk --model claude-sonnet-4-6   # Sonnet 4.6 - everyday tasks
+aahp run --all --yes --backend sdk --model claude-haiku-4-5    # Haiku 4.5 - fastest
+
+# Gemini
+aahp run --all --yes --backend gemini --model gemini-3.1-pro   # Gemini 3 Pro (default)
+aahp run --all --yes --backend gemini --model gemini-3-flash   # Gemini 3 Flash - faster
+aahp run --all --yes --backend gemini --model gemini-2.5-pro   # Gemini 2.5 Pro
+
+# Codex
+aahp run --all --yes --backend codex --model gpt-5.5           # gpt-5.5 - frontier (default)
+aahp run --all --yes --backend codex --model gpt-5.4           # gpt-5.4 - everyday coding
+aahp run --all --yes --backend codex --model gpt-5.4-mini      # gpt-5.4-mini - fast/cheap
+
+aahp config --model gemini-3.1-pro   # persist as default for any backend
 ```
 
 ---
