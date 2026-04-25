@@ -1,6 +1,6 @@
 {
   "name": "@elvatis_com/aahp-runner",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Autonomous agent runner for AAHP v3 projects - spawns Claude agents to work through tasks across all repos",
   "license": "Apache-2.0",
   "author": "Elvatis <emre.kohler@elvatis.com>",
@@ -44,15 +44,15 @@
     "prepublishOnly": "npm run build && npm run test"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.82.0",
+    "@anthropic-ai/sdk": "^0.90.0",
     "chalk": "^5.3.0",
     "commander": "^14.0.3",
     "ora": "^9.3.0"
   },
   "devDependencies": {
-    "@types/node": "^25.5.2",
+    "@types/node": "^25.6.0",
     "ts-node": "^10.9.2",
-    "typescript": "^6.0.2",
-    "vitest": "^4.1.2"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.4"
   }
 }
