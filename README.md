@@ -4,6 +4,18 @@
 
 ---
 
+## Changelog
+
+### v0.3.0 (2026-04-25)
+
+**Bug fix:** `aahp logs` now correctly reads `rootDir` from `~/.aahp-runner.json` when `--root` is not passed explicitly. Previously the `--root` option had `DEFAULT_ROOT` as its hardcoded Commander default, which prevented the saved config from ever being used. The option default has been removed so the config fallback chain (`--root` > `config.rootDir` > `DEFAULT_ROOT`) works as documented.
+
+### v0.2.9 and earlier
+
+See git log for prior changes.
+
+---
+
 ## The AAHP Toolchain
 
 > **Install both packages for the full experience.**

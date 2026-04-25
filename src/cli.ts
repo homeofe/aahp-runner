@@ -1002,7 +1002,7 @@ program
   .description('Show or tail the latest log for an agent. Omit repo to list all logs.')
   .option('-f, --follow', 'Stream log in real-time (like tail -f)')
   .option('-n, --lines <n>', 'Show last N lines', '40')
-  .option('-r, --root <path>', 'Root development folder (for per-repo .ai/logs/ scan)', DEFAULT_ROOT)
+  .option('-r, --root <path>', 'Root development folder (for per-repo .ai/logs/ scan)')
   .action(async (repo: string | undefined, opts: { follow: boolean; lines: string; root: string }) => {
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
