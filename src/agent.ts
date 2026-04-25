@@ -405,7 +405,8 @@ async function runViaSDK(
   task: AahpTask,
   apiKey: string,
   onLog: (msg: string) => void,
-  timeoutMs: number = 10 * 60 * 1000
+  timeoutMs: number = 10 * 60 * 1000,
+  model: string = 'claude-opus-4-7'
 ): Promise<AgentResult> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk')
 
@@ -449,7 +450,7 @@ async function runViaSDK(
     onLog(`\n-- Turn ${turns}/${MAX_TURNS} --`)
 
     const response = await (client.messages as any).create({
-      model: 'claude-opus-4-5',
+      model,
       max_tokens: 8192,
       system: systemPrompt,
       tools: TOOL_DEFINITIONS,
@@ -480,7 +481,7 @@ async function runViaSDK(
   }
 
   if (committed) {
-    markTaskDone(project, taskId, task, turns, 'claude-opus-4-5')
+    markTaskDone(project, taskId, task, turns, model)
     onLog(`\nMANIFEST.json updated - [${taskId}] marked done`)
   }
   if (timedOut) onLog(`\nAgent was stopped due to timeout after ${turns} turns`)
@@ -750,7 +751,8 @@ export async function runAgent(
   onLog: (msg: string) => void,
   explicitBackend: 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk' = 'auto',
   timeoutMinutes: number = 10,
-  retryOptions?: RetryOptions
+  retryOptions?: RetryOptions,
+  model?: string
 ): Promise<AgentResult> {
   const { backend, copilotToken } = await resolveBackend(apiKey, explicitBackend)
   const timeoutMs = timeoutMinutes * 60 * 1000
@@ -760,26 +762,26 @@ export async function runAgent(
     const hint = explicitBackend === 'copilot'
       ? 'GitHub Copilot token not found. Make sure you are signed in: gh auth login'
       : explicitBackend === 'claude'
-        ? 'Claude Code CLI not found. Install the Claude Code VS Code extension.'
+        ? 'Claude Code CLI not found. Install it with: npm install -g @anthropic-ai/claude-code'
         : explicitBackend === 'gemini'
           ? 'Gemini CLI not found. Install it with: npm install -g @google/gemini-cli'
           : explicitBackend === 'codex'
             ? 'Codex CLI not found. Install it with: npm install -g @openai/codex'
             : 'No agent backend available.\n' +
-              '  Option 1: Install Claude Code extension in VS Code (no API key needed)\n' +
-              '  Option 2: Install Gemini CLI - npm install -g @google/gemini-cli\n' +
-              '  Option 3: Install Codex CLI - npm install -g @openai/codex\n' +
-              '  Option 4: Sign in to GitHub CLI - gh auth login  (uses your Copilot subscription)\n' +
-              '  Option 5: aahp config --api-key "sk-ant-..."  (Anthropic API key)'
+              '  Option 1: npm install -g @anthropic-ai/claude-code  (Claude Code CLI)\n' +
+              '  Option 2: npm install -g @google/gemini-cli          (Gemini CLI)\n' +
+              '  Option 3: npm install -g @openai/codex               (Codex CLI)\n' +
+              '  Option 4: gh auth login                               (GitHub Copilot)\n' +
+              '  Option 5: aahp config --api-key "sk-ant-..."          (Anthropic API key)'
     throw new Error(hint)
   }
 
   const run = (): Promise<AgentResult> => {
     if (backend === 'claude-cli') return runViaClaudeCLI(project, taskId, task, onLog, timeoutMs)
-    if (backend === 'gemini')     return runViaGeminiCLI(project, taskId, task, onLog, timeoutMs)
-    if (backend === 'codex')      return runViaCodexCLI(project, taskId, task, onLog, timeoutMs)
+    if (backend === 'gemini')     return runViaGeminiCLI(project, taskId, task, onLog, timeoutMs, model)
+    if (backend === 'codex')      return runViaCodexCLI(project, taskId, task, onLog, timeoutMs, model)
     if (backend === 'copilot')    return runViaCopilot(project, taskId, task, copilotToken, onLog, timeoutMs)
-    return runViaSDK(project, taskId, task, apiKey, onLog, timeoutMs)
+    return runViaSDK(project, taskId, task, apiKey, onLog, timeoutMs, model)
   }
 
   if (!retryOptions) return run()
@@ -809,7 +811,8 @@ export async function runPlanningAgent(
   apiKey: string,
   onLog: (msg: string) => void,
   explicitBackend: 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk' = 'auto',
-  timeoutMinutes: number = 5
+  timeoutMinutes: number = 5,
+  model?: string
 ): Promise<PlanningResult> {
   const { backend, copilotToken } = await resolveBackend(apiKey, explicitBackend)
   const timeoutMs = timeoutMinutes * 60 * 1000
@@ -837,7 +840,7 @@ export async function runPlanningAgent(
   if (backend === 'gemini') {
     // Gemini CLI planning: same stdin pattern, -p "" for headless mode
     await new Promise<void>((resolve) => {
-      const proc = spawn('gemini', ['-m', 'gemini-2.5-pro', '-p', '', '--approval-mode', 'yolo'],
+      const proc = spawn('gemini', ['-m', model ?? 'gemini-2.5-pro', '-p', '', '--approval-mode', 'yolo'],
         { cwd: project.repoPath, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'] })
       const timer = setTimeout(() => { proc.kill('SIGTERM') }, timeoutMs)
       proc.stdin.write(prompt)
@@ -855,7 +858,7 @@ export async function runPlanningAgent(
   } else if (backend === 'codex') {
     // Codex CLI planning: exec --full-auto with prompt via stdin
     await new Promise<void>((resolve) => {
-      const proc = spawn('codex', ['exec', '--model', 'codex', '--full-auto'],
+      const proc = spawn('codex', ['exec', '--model', model ?? 'codex', '--full-auto'],
         { cwd: project.repoPath, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'] })
       const timer = setTimeout(() => { proc.kill('SIGTERM') }, timeoutMs)
       proc.stdin.write(prompt)
@@ -923,7 +926,7 @@ export async function runPlanningAgent(
     const client = new Anthropic({ apiKey })
     try {
       const msg = await client.messages.create({
-        model: 'claude-opus-4-5',
+        model: model ?? 'claude-opus-4-7',
         max_tokens: 4000,
         messages: [{ role: 'user', content: prompt }],
       })

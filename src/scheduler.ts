@@ -12,6 +12,7 @@ export interface RunnerConfig {
   scheduledTime?: string  // HH:MM format
   maxConcurrent?: number
   backend?: 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk'
+  model?: string          // model override passed to the chosen backend (e.g. "gemini-2.5-flash", "claude-sonnet-4-5")
   timeoutMinutes?: number  // per-agent timeout (default: 10)
   alerts?: AlertConfig
 }

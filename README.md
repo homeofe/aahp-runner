@@ -35,11 +35,20 @@ Together they cover the full AAHP loop: you guide during the day → the runner 
 | Backend | Description | Requirements |
 |---------|-------------|-------------|
 | `auto` (default) | Auto-detects in order: `claude` > `gemini` > `codex` > `copilot` > `sdk` | Any of the below |
-| `claude` | Claude Code VS Code extension | Claude Code extension installed |
+| `claude` | Claude Code CLI (`claude`) | `npm install -g @anthropic-ai/claude-code` |
 | `gemini` | Google Gemini CLI (`gemini`) | `npm install -g @google/gemini-cli` |
 | `codex` | OpenAI Codex CLI (`codex`) | `npm install -g @openai/codex` |
 | `copilot` | GitHub Copilot via `gh` CLI | `gh auth login` |
 | `sdk` | Anthropic API directly | `ANTHROPIC_API_KEY` env var |
+
+Use `--model` to override the model for any backend (models change frequently - pin the one you need):
+
+```bash
+aahp run --all --yes --backend gemini --model gemini-2.5-flash
+aahp run --all --yes --backend sdk    --model claude-opus-4-7
+aahp run --all --yes --backend codex  --model o4-mini
+aahp config --model gemini-2.5-flash  # persist as default
+```
 
 ---
 
@@ -279,11 +288,11 @@ rootDir/
 
 - Node.js >= 20
 - Repos bootstrapped with `aahp init` (creates `.ai/handoff/MANIFEST.json` per [AAHP v3 spec](https://github.com/homeofe/AAHP))
-- One of: Claude Code extension, GitHub Copilot (`gh auth login`), or Anthropic API key (`--backend sdk`)
+- One of: Claude Code CLI (`npm install -g @anthropic-ai/claude-code`), Gemini CLI, Codex CLI, GitHub Copilot (`gh auth login`), or Anthropic API key (`--backend sdk`)
 - `gh` CLI for GitHub issue sync (`gh auth login`)
 
 ---
 
 ## License
 
-MIT © [elvatis](https://github.com/elvatis)
+Apache-2.0 © [elvatis](https://github.com/elvatis)

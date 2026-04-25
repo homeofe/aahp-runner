@@ -309,20 +309,22 @@ program
   .option('--yes', 'Skip confirmation prompts (for scheduled/unattended runs)')
   .option('-l, --limit <n>', 'Max agents to run in parallel (0 = unlimited)', '0')
   .option('-k, --api-key <key>', 'Anthropic API key (or set ANTHROPIC_API_KEY env)')
-  .option('-b, --backend <backend>', 'Agent backend: auto (default), claude, copilot, sdk', 'auto')
+  .option('-b, --backend <backend>', 'Agent backend: auto (default), claude, gemini, codex, copilot, sdk', 'auto')
   .option('-t, --timeout <minutes>', 'Per-agent timeout in minutes (default: 10)', '10')
+  .option('-m, --model <model>', 'Model override for the chosen backend (e.g. gemini-2.5-flash, claude-opus-4-7, codex-mini)')
   .option('--follow-up', 'After completing tasks, auto-plan idle repos and run new tasks (chains until done)')
   .option('--dry-run', 'Show what would be executed without running agents')
   .action(async (projectName: string | undefined, opts: {
-    root: string; all: boolean; yes: boolean; limit: string; apiKey?: string; backend: string; timeout: string; followUp: boolean; dryRun: boolean
+    root: string; all: boolean; yes: boolean; limit: string; apiKey?: string; backend: string; timeout: string; model?: string; followUp: boolean; dryRun: boolean
   }) => {
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
     const apiKey = opts.apiKey ?? process.env['ANTHROPIC_API_KEY'] ?? config.apiKey ?? ''
     const backend = (opts.backend ?? config.backend ?? 'auto') as 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk'
     const timeoutMinutes = parseInt(opts.timeout, 10) || config.timeoutMinutes || 10
+    const model = opts.model ?? config.model
 
-    // No key needed if claude CLI is available (Claude Code VS Code extension)
+    // No key needed for CLI backends (claude, gemini, codex, copilot) - only sdk requires ANTHROPIC_API_KEY
     const projects = scanProjects(rootDir)
     // run only operates on ready/active tasks - blocked tasks need manual intervention
     const actionable = projects.filter(p => p.readyTasks.length + p.activeTasks.length > 0)
@@ -564,7 +566,7 @@ program
             }
 
             board.refresh()
-          }, backend, timeoutMinutes)
+          }, backend, timeoutMinutes, undefined, model)
 
           st.state = result.success ? 'done' : 'failed'
           st.committed = result.committed
@@ -687,7 +689,7 @@ program
                 const result = await runPlanningAgent(p, apiKey, (msg) => {
                   const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
                   if (line) process.stdout.write(chalk.gray(`\x1b[2K\r  [${p.name}] ${line.slice(0, 80)}`))
-                }, backend, 2)
+                }, backend, 2, model)
                 process.stdout.write('\n')
                 if (result.success) {
                   scanProjectByPath(p.repoPath)
@@ -741,7 +743,7 @@ program
                 const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
                 if (line) fSt.lastLine = line.trim()
                 followBoard.refresh()
-              }, backend, timeoutMinutes)
+              }, backend, timeoutMinutes, undefined, model)
               fSt.state = result.committed ? 'done' : 'failed'
               fSt.committed = result.committed
               fSt.finishedAt = new Date()
@@ -800,7 +802,7 @@ program
                 const result = await runPlanningAgent(p, apiKey, (msg) => {
                   const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
                   if (line) process.stdout.write(chalk.gray(`\x1b[2K\r  [${p.name}] ${line.slice(0, 80)}`))
-                }, backend, 2)
+                }, backend, 2, model)
                 process.stdout.write('\n')
                 if (result.success) {
                   scanProjectByPath(p.repoPath)
@@ -845,7 +847,7 @@ program
 
         const seqStart = Date.now()
         try {
-          const result = await runAgent(project, taskId, task, apiKey, msg => console.log(chalk.gray(msg)), backend, timeoutMinutes)
+          const result = await runAgent(project, taskId, task, apiKey, msg => console.log(chalk.gray(msg)), backend, timeoutMinutes, undefined, model)
 
           recordMetric({
             timestamp: new Date().toISOString(),
@@ -898,12 +900,13 @@ program
   .description('Set persistent configuration (stored in ~/.aahp-runner.json)')
   .option('-r, --root <path>', 'Set root development folder')
   .option('-k, --api-key <key>', 'Set Anthropic API key')
-  .option('-b, --backend <backend>', 'Set default backend: auto, claude, copilot, sdk')
+  .option('-b, --backend <backend>', 'Set default backend: auto, claude, gemini, codex, copilot, sdk')
   .option('--timeout <minutes>', 'Set default per-agent timeout in minutes')
+  .option('-m, --model <model>', 'Set default model override (e.g. gemini-2.5-flash, claude-opus-4-7, codex-mini)')
   .option('--alert-webhook <url>', 'Set webhook URL for alerts (HTTP POST)')
   .option('--alert-slack <url>', 'Set Slack incoming webhook URL for alerts')
   .option('--alert-clear', 'Remove all alert settings')
-  .action((opts: { root?: string; apiKey?: string; backend?: string; timeout?: string; alertWebhook?: string; alertSlack?: string; alertClear?: boolean }) => {
+  .action((opts: { root?: string; apiKey?: string; backend?: string; timeout?: string; model?: string; alertWebhook?: string; alertSlack?: string; alertClear?: boolean }) => {
     let changed = false
     if (opts.root) {
       saveConfig({ rootDir: opts.root })
@@ -933,6 +936,11 @@ program
       }
       saveConfig({ timeoutMinutes: minutes })
       console.log(chalk.green(`✅ Default timeout set to: ${minutes} minutes`))
+      changed = true
+    }
+    if (opts.model) {
+      saveConfig({ model: opts.model })
+      console.log(chalk.green(`✅ Default model set to: ${opts.model}`))
       changed = true
     }
     if (opts.alertWebhook) {
@@ -1564,13 +1572,15 @@ program
   .option('-a, --all', 'Plan ALL idle repos, not just the first one')
   .option('-y, --yes', 'Skip confirmation prompts')
   .option('--local', 'Include local-only repos (no GitHub remote)')
-  .option('--backend <backend>', 'Agent backend: auto | claude | copilot | sdk', 'auto')
+  .option('--backend <backend>', 'Agent backend: auto | claude | gemini | codex | copilot | sdk', 'auto')
   .option('--timeout <minutes>', 'Planning timeout per repo in minutes', '5')
-  .action(async (project: string | undefined, opts: { root: string; all: boolean; yes: boolean; local: boolean; backend: string; timeout: string }) => {
+  .option('-m, --model <model>', 'Model override for the chosen backend')
+  .action(async (project: string | undefined, opts: { root: string; all: boolean; yes: boolean; local: boolean; backend: string; timeout: string; model?: string }) => {
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
     const backend = (opts.backend ?? config.backend ?? 'auto') as 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk'
     const timeoutMin = parseInt(opts.timeout, 10) || 5
+    const model = opts.model ?? config.model
 
     const projects = scanProjects(rootDir)
 
@@ -1615,7 +1625,7 @@ program
     for (const p of targets) {
       console.log(chalk.bold(`\n─── Planning: ${p.name} ───`))
       try {
-        const result = await runPlanningAgent(p, apiKey, (msg) => process.stdout.write(msg), backend, timeoutMin)
+        const result = await runPlanningAgent(p, apiKey, (msg) => process.stdout.write(msg), backend, timeoutMin, model)
         if (result.success) {
           // Re-scan to pick up new tasks from NEXT_ACTIONS.md → MANIFEST → GitHub issues
           const updated = scanProjectByPath(p.repoPath)
@@ -1645,16 +1655,18 @@ program
   .option('--limit <n>', 'Max concurrent agents per cycle', '5')
   .option('--pause <n>', 'Minutes to pause between cycles (default: 0)', '0')
   .option('--local', 'Include local-only repos (no GitHub remote)')
-  .option('--backend <backend>', 'Agent backend: auto | claude | copilot | sdk', 'auto')
+  .option('--backend <backend>', 'Agent backend: auto | claude | gemini | codex | copilot | sdk', 'auto')
   .option('--plan-timeout <minutes>', 'Planning timeout per repo in minutes', '5')
   .option('--run-timeout <minutes>', 'Per-agent execution timeout in minutes', '10')
+  .option('-m, --model <model>', 'Model override for the chosen backend')
   .action(async (opts: {
     root: string; yes: boolean; hours: string; limit: string; pause: string;
-    local: boolean; backend: string; planTimeout: string; runTimeout: string
+    local: boolean; backend: string; planTimeout: string; runTimeout: string; model?: string
   }) => {
     const config   = loadConfig()
     const rootDir  = opts.root ?? config.rootDir ?? DEFAULT_ROOT
     const backend  = (opts.backend ?? config.backend ?? 'auto') as 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk'
+    const model    = opts.model ?? config.model
     const hours    = parseFloat(opts.hours) || 8
     const maxLimit = parseInt(opts.limit, 10) || 5
     const pauseMin = parseInt(opts.pause, 10) || 0
@@ -1742,7 +1754,7 @@ program
         for (const p of idle) {
           try {
             log(`     Planning: ${p.name}`)
-            const result = await runPlanningAgent(p, apiKey, (msg) => fs.appendFileSync(logFile, msg, 'utf8'), backend, planTout)
+            const result = await runPlanningAgent(p, apiKey, (msg) => fs.appendFileSync(logFile, msg, 'utf8'), backend, planTout, model)
             if (result.success) {
               scanProjectByPath(p.repoPath)  // sync new tasks → MANIFEST → GH issues
               log(`     ✅ ${p.name}: planned`)
@@ -1786,7 +1798,7 @@ program
               const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
               if (line) st.lastLine = line.trim()
               board.refresh()
-            }, backend, runTout)
+            }, backend, runTout, undefined, model)
             st.state = result.committed ? 'done' : 'failed'
             st.committed = result.committed
             st.finishedAt = new Date()
@@ -1858,7 +1870,7 @@ program
   .addHelpText('after', `
 Backends:
   auto     Auto-detect: claude > gemini > codex > copilot > sdk (default)
-  claude   Claude Code CLI (requires VS Code Claude Code extension)
+  claude   Claude Code CLI (npm install -g @anthropic-ai/claude-code)
   gemini   Google Gemini CLI (npm install -g @google/gemini-cli)
   codex    OpenAI Codex CLI (npm install -g @openai/codex)
   copilot  GitHub Copilot via gh CLI (gh auth login with Copilot subscription)
@@ -1887,6 +1899,8 @@ Examples:
   aahp run --all --yes --backend codex     Use OpenAI Codex CLI for all tasks
   aahp run --all --yes --backend copilot   Use GitHub Copilot for all tasks
   aahp run --all --yes --backend sdk       Use Anthropic API directly
+  aahp run --all --yes --backend gemini --model gemini-2.5-flash   Use a specific model
+  aahp run --all --yes --backend sdk --model claude-opus-4-7       Use Anthropic SDK with Opus 4.7
   aahp run --all --yes --limit 3     Cap at 3 concurrent agents
   aahp run --all --yes --timeout 15  Set per-agent timeout to 15 minutes
   aahp run --all --yes --follow-up   Run, then plan idle repos, re-run new tasks (chains)
@@ -1911,13 +1925,14 @@ Examples:
   aahp metrics --repo openclaw-ops --days 7
 
   aahp config                        Show current config
-  aahp config --root "E:\\_Development"     Set root folder
-  aahp config --backend gemini               Save default backend
-  aahp config --api-key sk-ant-...           Save Anthropic API key (sdk backend only)
-  aahp config --timeout 15                   Set default timeout (minutes)
-  aahp config --alert-webhook <url>          Set webhook for alerts
-  aahp config --alert-slack <url>            Set Slack webhook for alerts
-  aahp config --alert-clear                  Remove alert webhooks
+  aahp config --root "E:\\_Development"          Set root folder
+  aahp config --backend gemini                    Save default backend
+  aahp config --model gemini-2.5-flash            Save default model for that backend
+  aahp config --api-key sk-ant-...                Save Anthropic API key (sdk backend only)
+  aahp config --timeout 15                        Set default timeout (minutes)
+  aahp config --alert-webhook <url>               Set webhook for alerts
+  aahp config --alert-slack <url>                 Set Slack webhook for alerts
+  aahp config --alert-clear                       Remove alert webhooks
 
   aahp schedule --time 02:00         Register nightly cron/Task Scheduler job
   aahp schedule --remove             Remove the scheduled job
@@ -1955,12 +1970,16 @@ program.action(async () => {
   const claudeOk = claudeCode === 0
 
   if (!claudeOk) {
-    console.log(chalk.yellow('\nStep 2 of 3: Install Claude Code'))
-    console.log(chalk.gray('  Claude Code is the agent engine. Install it in VS Code:'))
+    console.log(chalk.yellow('\nStep 2 of 3: Install an agent CLI'))
+    console.log(chalk.gray('  At least one agent CLI is required. Choose any of:'))
     console.log()
-    console.log(chalk.white('  1.') + ' Open VS Code Extensions → search "Claude Code" → Install')
-    console.log(chalk.white('  2.') + ' Sign in when prompted')
-    console.log(chalk.white('  3.') + ' Then run: ' + chalk.cyan('aahp'))
+    console.log(chalk.cyan('  npm install -g @anthropic-ai/claude-code') + chalk.gray('  # Claude Code CLI (recommended)'))
+    console.log(chalk.cyan('  npm install -g @google/gemini-cli') + chalk.gray('       # Google Gemini CLI'))
+    console.log(chalk.cyan('  npm install -g @openai/codex') + chalk.gray('            # OpenAI Codex CLI'))
+    console.log()
+    console.log(chalk.gray('  Or set ANTHROPIC_API_KEY and run: aahp run --backend sdk'))
+    console.log()
+    console.log(chalk.gray('  After installing, re-run: ') + chalk.cyan('aahp'))
     console.log()
     return
   }
