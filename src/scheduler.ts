@@ -11,7 +11,7 @@ export interface RunnerConfig {
   apiKey: string
   scheduledTime?: string  // HH:MM format
   maxConcurrent?: number
-  backend?: 'auto' | 'claude' | 'copilot' | 'sdk'
+  backend?: 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk'
   timeoutMinutes?: number  // per-agent timeout (default: 10)
   alerts?: AlertConfig
 }

@@ -34,8 +34,10 @@ Together they cover the full AAHP loop: you guide during the day → the runner 
 
 | Backend | Description | Requirements |
 |---------|-------------|-------------|
-| `auto` (default) | Auto-detects: tries `claude`, then `copilot`, then `sdk` | Claude Code or Copilot extension |
+| `auto` (default) | Auto-detects in order: `claude` > `gemini` > `codex` > `copilot` > `sdk` | Any of the below |
 | `claude` | Claude Code VS Code extension | Claude Code extension installed |
+| `gemini` | Google Gemini CLI (`gemini`) | `npm install -g @google/gemini-cli` |
+| `codex` | OpenAI Codex CLI (`codex`) | `npm install -g @openai/codex` |
 | `copilot` | GitHub Copilot via `gh` CLI | `gh auth login` |
 | `sdk` | Anthropic API directly | `ANTHROPIC_API_KEY` env var |
 
@@ -201,7 +203,7 @@ aahp metrics --json                # raw JSON export
 ```bash
 aahp config                        # show current config
 aahp config --root "E:\_Development"
-aahp config --backend claude
+aahp config --backend claude       # or: gemini, codex, copilot, sdk
 aahp config --timeout 20           # default per-agent timeout (minutes)
 aahp config --api-key "sk-ant-..."
 aahp config --alert-webhook "https://example.com/hook"

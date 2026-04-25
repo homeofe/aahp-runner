@@ -19,7 +19,7 @@ export interface AgentResult {
   memPeakMB?: number // peak memory in MB
 }
 
-type Backend = 'claude-cli' | 'copilot' | 'sdk' | 'none'
+type Backend = 'claude-cli' | 'gemini' | 'codex' | 'copilot' | 'sdk' | 'none'
 
 // ── Async HEAD helper for commit detection ───────────────────────────────────
 
@@ -36,6 +36,16 @@ async function detectClaudeCLI(): Promise<boolean> {
   return code === 0
 }
 
+async function detectGeminiCLI(): Promise<boolean> {
+  const { code } = await runAsync('gemini', ['--version'], process.cwd(), 10000)
+  return code === 0
+}
+
+async function detectCodexCLI(): Promise<boolean> {
+  const { code } = await runAsync('codex', ['--version'], process.cwd(), 10000)
+  return code === 0
+}
+
 /** Returns GitHub token from `gh auth token`, or empty string if unavailable. */
 async function detectCopilotToken(): Promise<string> {
   const { stdout, code } = await runAsync('gh', ['auth', 'token'], process.cwd(), 10000)
@@ -46,20 +56,32 @@ let cachedBackend: { backend: Backend; copilotToken: string } | undefined
 
 /**
  * Pick a backend.
- * explicit 'auto' (or undefined): claude-cli > copilot > sdk > none
+ * explicit 'auto': claude-cli > gemini > codex > copilot > sdk > none
  * explicit 'claude'  - claude-cli only
+ * explicit 'gemini'  - gemini CLI only
+ * explicit 'codex'   - codex CLI only
  * explicit 'copilot' - copilot only (fails if gh token unavailable)
  * explicit 'sdk'     - sdk only
  */
 async function resolveBackend(
   apiKey: string,
-  explicit: 'auto' | 'claude' | 'copilot' | 'sdk' = 'auto'
+  explicit: 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk' = 'auto'
 ): Promise<{ backend: Backend; copilotToken: string }> {
   // Explicit backend selections bypass cache since they are specific requests
   if (explicit === 'claude') {
     const found = await detectClaudeCLI()
     return found
       ? { backend: 'claude-cli', copilotToken: '' }
+      : { backend: 'none', copilotToken: '' }
+  }
+  if (explicit === 'gemini') {
+    return (await detectGeminiCLI())
+      ? { backend: 'gemini', copilotToken: '' }
+      : { backend: 'none', copilotToken: '' }
+  }
+  if (explicit === 'codex') {
+    return (await detectCodexCLI())
+      ? { backend: 'codex', copilotToken: '' }
       : { backend: 'none', copilotToken: '' }
   }
   if (explicit === 'sdk') {
@@ -75,6 +97,14 @@ async function resolveBackend(
 
   if (await detectClaudeCLI()) {
     cachedBackend = { backend: 'claude-cli', copilotToken: '' }
+    return cachedBackend
+  }
+  if (await detectGeminiCLI()) {
+    cachedBackend = { backend: 'gemini', copilotToken: '' }
+    return cachedBackend
+  }
+  if (await detectCodexCLI()) {
+    cachedBackend = { backend: 'codex', copilotToken: '' }
     return cachedBackend
   }
   const token = await detectCopilotToken()
@@ -217,6 +247,155 @@ async function runViaClaudeCLI(
     cpuAvg: resMonitor?.avgCpu(),
     memPeakMB: resMonitor?.peakMemMB(),
   }
+}
+
+/**
+ * Generic CLI runner used by both Gemini and Codex backends.
+ * Spawns a CLI subprocess, writes the prompt to stdin, and captures output.
+ * Commit detection works the same way as the Claude CLI backend.
+ */
+async function runViaCLI(
+  cliName: string,
+  cliArgs: string[],
+  project: AahpProject,
+  taskId: string,
+  task: AahpTask,
+  agentLabel: string,
+  onLog: (msg: string) => void,
+  timeoutMs: number
+): Promise<AgentResult> {
+  const systemPrompt = buildSystemPrompt(project, taskId, task)
+  const userPrompt = `${systemPrompt}\n\n---\n\nStart working on [${taskId}]: ${task.title}\n\nRead relevant files first, then implement, test, and commit. Mark the task done in MANIFEST.json when finished.`
+
+  onLog(`\n${agentLabel} agent starting on [${taskId}]: ${task.title}`)
+  onLog(`   Repo: ${project.repoPath}`)
+  onLog(`   Backend: ${cliName}`)
+  onLog(`   Timeout: ${Math.round(timeoutMs / 60000)}m`)
+
+  const logFile = agentLogPath(project.name, project.repoPath)
+  const ts = () => new Date().toISOString().slice(11, 19)
+  const startMs = Date.now()
+  writeLog(logFile, `[${ts()}] AAHP START  ${taskId} · ${task.title}\n`)
+  writeLog(logFile, `[${ts()}] BACKEND     ${cliName} · timeout ${Math.round(timeoutMs / 60000)}m\n`)
+  if (task.github_issue) writeLog(logFile, `[${ts()}] ISSUE       #${task.github_issue} in ${task.github_repo}\n`)
+  writeLog(logFile, `${'─'.repeat(60)}\n`)
+
+  const headBefore = await getHead(project.repoPath)
+
+  let output = ''
+  let exitCode: number | null = null
+  let resMonitor: ResourceMonitor | undefined
+
+  await new Promise<void>((resolve) => {
+    const proc = spawn(cliName, cliArgs, {
+      cwd: project.repoPath,
+      shell: process.platform === 'win32',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+
+    if (proc.pid) {
+      resMonitor = new ResourceMonitor(proc.pid)
+      resMonitor.start()
+    }
+
+    const timer = setTimeout(() => {
+      onLog(`\n${cliName} timed out after ${timeoutMs / 1000}s - sending SIGTERM`)
+      proc.kill('SIGTERM')
+      setTimeout(() => { try { proc.kill('SIGKILL') } catch {} }, 5000)
+    }, timeoutMs)
+
+    proc.stdin.write(userPrompt)
+    proc.stdin.end()
+
+    proc.stdout.on('data', (chunk: Buffer) => {
+      const text = chunk.toString()
+      output += text
+      writeLog(logFile, text)
+      onLog(text)
+    })
+    proc.stderr.on('data', (chunk: Buffer) => {
+      writeLog(logFile, chunk.toString())
+      onLog(chunk.toString())
+    })
+    proc.on('close', (code) => {
+      clearTimeout(timer)
+      resMonitor?.stop()
+      exitCode = code
+      if (code !== 0) onLog(`\n${cliName} exited with code ${code}`)
+      resolve()
+    })
+    proc.on('error', (err) => {
+      clearTimeout(timer)
+      resMonitor?.stop()
+      onLog(`\nspawn error: ${err.message}`)
+      resolve()
+    })
+  })
+
+  writeLog(logFile, `\n${'─'.repeat(60)}\n`)
+
+  let committed = false
+  try {
+    const headAfter = await getHead(project.repoPath)
+    committed = headAfter !== headBefore && headAfter.length > 0
+  } catch {
+    committed = output.toLowerCase().includes('git commit') ||
+      output.toLowerCase().includes('committed') ||
+      output.toLowerCase().includes('[main ') ||
+      output.toLowerCase().includes('[master ')
+  }
+
+  if (committed) {
+    markTaskDone(project, taskId, task, 1, agentLabel)
+    onLog(`\nMANIFEST.json updated - [${taskId}] marked done`)
+  }
+
+  writeLog(logFile, `[${ts()}] AAHP ${committed ? 'DONE  ' : 'FAILED'}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
+
+  return {
+    success: committed,
+    taskId,
+    turns: 1,
+    committed,
+    summary: output.slice(0, 300),
+    logFile,
+    cpuAvg: resMonitor?.avgCpu(),
+    memPeakMB: resMonitor?.peakMemMB(),
+  }
+}
+
+/**
+ * Run agent via Gemini CLI.
+ * Uses `-p "" --approval-mode yolo` for headless/non-interactive mode.
+ * Prompt is delivered via stdin (avoids agentic @file mode which causes hangs).
+ */
+async function runViaGeminiCLI(
+  project: AahpProject,
+  taskId: string,
+  task: AahpTask,
+  onLog: (msg: string) => void,
+  timeoutMs: number = 10 * 60 * 1000,
+  model: string = 'gemini-2.5-pro'
+): Promise<AgentResult> {
+  // -p "" triggers headless mode; actual prompt arrives on stdin
+  const args = ['-m', model, '-p', '', '--approval-mode', 'yolo']
+  return runViaCLI('gemini', args, project, taskId, task, `Gemini/${model}`, onLog, timeoutMs)
+}
+
+/**
+ * Run agent via OpenAI Codex CLI.
+ * Uses `exec --full-auto` for non-interactive mode with prompt via stdin.
+ */
+async function runViaCodexCLI(
+  project: AahpProject,
+  taskId: string,
+  task: AahpTask,
+  onLog: (msg: string) => void,
+  timeoutMs: number = 10 * 60 * 1000,
+  model: string = 'codex'
+): Promise<AgentResult> {
+  const args = ['exec', '--model', model, '--full-auto']
+  return runViaCLI('codex', args, project, taskId, task, `Codex/${model}`, onLog, timeoutMs)
 }
 
 /** Run agent via Anthropic SDK(direct API key) - fallback if claude CLI not available */
@@ -569,7 +748,7 @@ export async function runAgent(
   task: AahpTask,
   apiKey: string,
   onLog: (msg: string) => void,
-  explicitBackend: 'auto' | 'claude' | 'copilot' | 'sdk' = 'auto',
+  explicitBackend: 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk' = 'auto',
   timeoutMinutes: number = 10,
   retryOptions?: RetryOptions
 ): Promise<AgentResult> {
@@ -582,16 +761,24 @@ export async function runAgent(
       ? 'GitHub Copilot token not found. Make sure you are signed in: gh auth login'
       : explicitBackend === 'claude'
         ? 'Claude Code CLI not found. Install the Claude Code VS Code extension.'
-        : 'No agent backend available.\n' +
-          '  Option 1: Install Claude Code extension in VS Code (no API key needed)\n' +
-          '  Option 2: Sign in to GitHub CLI - gh auth login  (uses your Copilot subscription)\n' +
-          '  Option 3: aahp config --api-key "sk-ant-..."  (Anthropic API key)'
+        : explicitBackend === 'gemini'
+          ? 'Gemini CLI not found. Install it with: npm install -g @google/gemini-cli'
+          : explicitBackend === 'codex'
+            ? 'Codex CLI not found. Install it with: npm install -g @openai/codex'
+            : 'No agent backend available.\n' +
+              '  Option 1: Install Claude Code extension in VS Code (no API key needed)\n' +
+              '  Option 2: Install Gemini CLI - npm install -g @google/gemini-cli\n' +
+              '  Option 3: Install Codex CLI - npm install -g @openai/codex\n' +
+              '  Option 4: Sign in to GitHub CLI - gh auth login  (uses your Copilot subscription)\n' +
+              '  Option 5: aahp config --api-key "sk-ant-..."  (Anthropic API key)'
     throw new Error(hint)
   }
 
   const run = (): Promise<AgentResult> => {
     if (backend === 'claude-cli') return runViaClaudeCLI(project, taskId, task, onLog, timeoutMs)
-    if (backend === 'copilot') return runViaCopilot(project, taskId, task, copilotToken, onLog, timeoutMs)
+    if (backend === 'gemini')     return runViaGeminiCLI(project, taskId, task, onLog, timeoutMs)
+    if (backend === 'codex')      return runViaCodexCLI(project, taskId, task, onLog, timeoutMs)
+    if (backend === 'copilot')    return runViaCopilot(project, taskId, task, copilotToken, onLog, timeoutMs)
     return runViaSDK(project, taskId, task, apiKey, onLog, timeoutMs)
   }
 
@@ -621,7 +808,7 @@ export async function runPlanningAgent(
   project: AahpProject,
   apiKey: string,
   onLog: (msg: string) => void,
-  explicitBackend: 'auto' | 'claude' | 'copilot' | 'sdk' = 'auto',
+  explicitBackend: 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk' = 'auto',
   timeoutMinutes: number = 5
 ): Promise<PlanningResult> {
   const { backend, copilotToken } = await resolveBackend(apiKey, explicitBackend)
@@ -640,14 +827,50 @@ export async function runPlanningAgent(
   onLog(`   Timeout: ${timeoutMinutes}m`)
 
   if (backend === 'none') {
-    const msg = 'No agent backend available for planning. Install Claude Code or run: gh auth login'
+    const msg = 'No agent backend available for planning. Install Claude Code, Gemini CLI, Codex CLI or run: gh auth login'
     onLog(`\n❌ ${msg}`)
     return { success: false, output: msg, logFile }
   }
 
   let output = ''
 
-  if (backend === 'claude-cli') {
+  if (backend === 'gemini') {
+    // Gemini CLI planning: same stdin pattern, -p "" for headless mode
+    await new Promise<void>((resolve) => {
+      const proc = spawn('gemini', ['-m', 'gemini-2.5-pro', '-p', '', '--approval-mode', 'yolo'],
+        { cwd: project.repoPath, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'] })
+      const timer = setTimeout(() => { proc.kill('SIGTERM') }, timeoutMs)
+      proc.stdin.write(prompt)
+      proc.stdin.end()
+      proc.stdout.on('data', (chunk: Buffer) => {
+        const text = chunk.toString()
+        output += text
+        writeLog(logFile, text)
+        onLog(text)
+      })
+      proc.stderr.on('data', (chunk: Buffer) => writeLog(logFile, chunk.toString()))
+      proc.on('close', () => { clearTimeout(timer); resolve() })
+      proc.on('error', (err) => { clearTimeout(timer); onLog(`spawn error: ${err.message}`); resolve() })
+    })
+  } else if (backend === 'codex') {
+    // Codex CLI planning: exec --full-auto with prompt via stdin
+    await new Promise<void>((resolve) => {
+      const proc = spawn('codex', ['exec', '--model', 'codex', '--full-auto'],
+        { cwd: project.repoPath, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'] })
+      const timer = setTimeout(() => { proc.kill('SIGTERM') }, timeoutMs)
+      proc.stdin.write(prompt)
+      proc.stdin.end()
+      proc.stdout.on('data', (chunk: Buffer) => {
+        const text = chunk.toString()
+        output += text
+        writeLog(logFile, text)
+        onLog(text)
+      })
+      proc.stderr.on('data', (chunk: Buffer) => writeLog(logFile, chunk.toString()))
+      proc.on('close', () => { clearTimeout(timer); resolve() })
+      proc.on('error', (err) => { clearTimeout(timer); onLog(`spawn error: ${err.message}`); resolve() })
+    })
+  } else if (backend === 'claude-cli') {
     const claudeCmd = process.platform === 'win32' ? 'claude.cmd' : 'claude'
     await new Promise<void>((resolve) => {
       const proc = spawn(

@@ -319,7 +319,7 @@ program
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
     const apiKey = opts.apiKey ?? process.env['ANTHROPIC_API_KEY'] ?? config.apiKey ?? ''
-    const backend = (opts.backend ?? config.backend ?? 'auto') as 'auto' | 'claude' | 'copilot' | 'sdk'
+    const backend = (opts.backend ?? config.backend ?? 'auto') as 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk'
     const timeoutMinutes = parseInt(opts.timeout, 10) || config.timeoutMinutes || 10
 
     // No key needed if claude CLI is available (Claude Code VS Code extension)
@@ -916,12 +916,12 @@ program
       changed = true
     }
     if (opts.backend) {
-      const valid = ['auto', 'claude', 'copilot', 'sdk']
+      const valid = ['auto', 'claude', 'gemini', 'codex', 'copilot', 'sdk']
       if (!valid.includes(opts.backend)) {
         console.error(chalk.red(`Invalid backend "${opts.backend}". Choose: ${valid.join(', ')}`))
         process.exit(1)
       }
-      saveConfig({ backend: opts.backend as 'auto' | 'claude' | 'copilot' | 'sdk' })
+      saveConfig({ backend: opts.backend as 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk' })
       console.log(chalk.green(`✅ Default backend set to: ${opts.backend}`))
       changed = true
     }
@@ -1569,7 +1569,7 @@ program
   .action(async (project: string | undefined, opts: { root: string; all: boolean; yes: boolean; local: boolean; backend: string; timeout: string }) => {
     const config = loadConfig()
     const rootDir = opts.root ?? config.rootDir ?? DEFAULT_ROOT
-    const backend = (opts.backend ?? config.backend ?? 'auto') as 'auto' | 'claude' | 'copilot' | 'sdk'
+    const backend = (opts.backend ?? config.backend ?? 'auto') as 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk'
     const timeoutMin = parseInt(opts.timeout, 10) || 5
 
     const projects = scanProjects(rootDir)
@@ -1654,7 +1654,7 @@ program
   }) => {
     const config   = loadConfig()
     const rootDir  = opts.root ?? config.rootDir ?? DEFAULT_ROOT
-    const backend  = (opts.backend ?? config.backend ?? 'auto') as 'auto' | 'claude' | 'copilot' | 'sdk'
+    const backend  = (opts.backend ?? config.backend ?? 'auto') as 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk'
     const hours    = parseFloat(opts.hours) || 8
     const maxLimit = parseInt(opts.limit, 10) || 5
     const pauseMin = parseInt(opts.pause, 10) || 0
