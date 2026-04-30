@@ -17,6 +17,10 @@ export interface AgentResult {
   logFile: string   // path to full log
   cpuAvg?: number   // average CPU % during run
   memPeakMB?: number // peak memory in MB
+  // ── Abort marker (issue #28) ────────────────────────────────────────────────
+  // Set to true when the run was terminated by a POST /abort from the hub.
+  // Implies success=false; allows recordMetric to distinguish abort from failure.
+  aborted?: boolean
 }
 
 type Backend = 'claude-cli' | 'gemini' | 'codex' | 'copilot' | 'sdk' | 'none'
@@ -126,7 +130,8 @@ async function runViaClaudeCLI(
   taskId: string,
   task: AahpTask,
   onLog: (msg: string) => void,
-  timeoutMs: number = 10 * 60 * 1000
+  timeoutMs: number = 10 * 60 * 1000,
+  abortSignal?: AbortSignal
 ): Promise<AgentResult> {
   const systemPrompt = buildSystemPrompt(project, taskId, task)
   const userPrompt = `${systemPrompt}\n\n---\n\nStart working on [${taskId}]: ${task.title}\n\nRead relevant files first, then implement, test, and commit. Mark the task done in MANIFEST.json when finished.`
@@ -149,6 +154,7 @@ async function runViaClaudeCLI(
 
   let output = ''
   let exitCode: number | null = null
+  let aborted = false
 
   const CLAUDE_TIMEOUT_MS = timeoutMs
   const claudeCmd = process.platform === 'win32' ? 'claude.cmd' : 'claude'
@@ -184,6 +190,18 @@ async function runViaClaudeCLI(
       setTimeout(() => { try { proc.kill('SIGKILL') } catch {} }, 5000)
     }, CLAUDE_TIMEOUT_MS)
 
+    // External abort hook (issue #28) - SIGTERM then SIGKILL after 5s
+    const abortHandler = () => {
+      aborted = true
+      onLog(`\nClaude CLI aborted by control endpoint - sending SIGTERM`)
+      try { proc.kill('SIGTERM') } catch { /* already exited */ }
+      setTimeout(() => { try { proc.kill('SIGKILL') } catch {} }, 5000)
+    }
+    if (abortSignal) {
+      if (abortSignal.aborted) abortHandler()
+      else abortSignal.addEventListener('abort', abortHandler, { once: true })
+    }
+
     proc.stdin.write(userPrompt)
     proc.stdin.end()
 
@@ -202,13 +220,15 @@ async function runViaClaudeCLI(
 
     proc.on('close', (code) => {
       clearTimeout(timer)
+      if (abortSignal) abortSignal.removeEventListener('abort', abortHandler)
       resMonitor?.stop()
       exitCode = code
-      if (code !== 0) onLog(`Claude CLI exited with code ${code}`)
+      if (code !== 0 && !aborted) onLog(`Claude CLI exited with code ${code}`)
       resolve()
     })
     proc.on('error', (err) => {
       clearTimeout(timer)
+      if (abortSignal) abortSignal.removeEventListener('abort', abortHandler)
       resMonitor?.stop()
       onLog(`\nspawn error: ${err.message}`)
       resolve()
@@ -230,15 +250,16 @@ async function runViaClaudeCLI(
       output.toLowerCase().includes('[master ')
   }
 
-  if (committed) {
+  if (committed && !aborted) {
     markTaskDone(project, taskId, task, 1, 'claude-code')
     onLog(`\nMANIFEST.json updated - [${taskId}] marked done`)
   }
 
-  writeLog(logFile, `[${ts()}] AAHP ${committed ? 'DONE  ' : 'FAILED'}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
+  const cliStatus = aborted ? 'ABORT ' : (committed ? 'DONE  ' : 'FAILED')
+  writeLog(logFile, `[${ts()}] AAHP ${cliStatus}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
 
   return {
-    success: committed,
+    success: committed && !aborted,
     taskId,
     turns: 1,
     committed,
@@ -246,6 +267,7 @@ async function runViaClaudeCLI(
     logFile,
     cpuAvg: resMonitor?.avgCpu(),
     memPeakMB: resMonitor?.peakMemMB(),
+    aborted: aborted || undefined,
   }
 }
 
@@ -262,7 +284,8 @@ async function runViaCLI(
   task: AahpTask,
   agentLabel: string,
   onLog: (msg: string) => void,
-  timeoutMs: number
+  timeoutMs: number,
+  abortSignal?: AbortSignal
 ): Promise<AgentResult> {
   const systemPrompt = buildSystemPrompt(project, taskId, task)
   const userPrompt = `${systemPrompt}\n\n---\n\nStart working on [${taskId}]: ${task.title}\n\nRead relevant files first, then implement, test, and commit. Mark the task done in MANIFEST.json when finished.`
@@ -285,6 +308,7 @@ async function runViaCLI(
   let output = ''
   let exitCode: number | null = null
   let resMonitor: ResourceMonitor | undefined
+  let aborted = false
 
   await new Promise<void>((resolve) => {
     const proc = spawn(cliName, cliArgs, {
@@ -304,6 +328,18 @@ async function runViaCLI(
       setTimeout(() => { try { proc.kill('SIGKILL') } catch {} }, 5000)
     }, timeoutMs)
 
+    // External abort hook (issue #28) - SIGTERM then SIGKILL after 5s
+    const abortHandler = () => {
+      aborted = true
+      onLog(`\n${cliName} aborted by control endpoint - sending SIGTERM`)
+      try { proc.kill('SIGTERM') } catch { /* already exited */ }
+      setTimeout(() => { try { proc.kill('SIGKILL') } catch {} }, 5000)
+    }
+    if (abortSignal) {
+      if (abortSignal.aborted) abortHandler()
+      else abortSignal.addEventListener('abort', abortHandler, { once: true })
+    }
+
     proc.stdin.write(userPrompt)
     proc.stdin.end()
 
@@ -319,13 +355,15 @@ async function runViaCLI(
     })
     proc.on('close', (code) => {
       clearTimeout(timer)
+      if (abortSignal) abortSignal.removeEventListener('abort', abortHandler)
       resMonitor?.stop()
       exitCode = code
-      if (code !== 0) onLog(`\n${cliName} exited with code ${code}`)
+      if (code !== 0 && !aborted) onLog(`\n${cliName} exited with code ${code}`)
       resolve()
     })
     proc.on('error', (err) => {
       clearTimeout(timer)
+      if (abortSignal) abortSignal.removeEventListener('abort', abortHandler)
       resMonitor?.stop()
       onLog(`\nspawn error: ${err.message}`)
       resolve()
@@ -345,15 +383,16 @@ async function runViaCLI(
       output.toLowerCase().includes('[master ')
   }
 
-  if (committed) {
+  if (committed && !aborted) {
     markTaskDone(project, taskId, task, 1, agentLabel)
     onLog(`\nMANIFEST.json updated - [${taskId}] marked done`)
   }
 
-  writeLog(logFile, `[${ts()}] AAHP ${committed ? 'DONE  ' : 'FAILED'}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
+  const cliRunStatus = aborted ? 'ABORT ' : (committed ? 'DONE  ' : 'FAILED')
+  writeLog(logFile, `[${ts()}] AAHP ${cliRunStatus}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
 
   return {
-    success: committed,
+    success: committed && !aborted,
     taskId,
     turns: 1,
     committed,
@@ -361,6 +400,7 @@ async function runViaCLI(
     logFile,
     cpuAvg: resMonitor?.avgCpu(),
     memPeakMB: resMonitor?.peakMemMB(),
+    aborted: aborted || undefined,
   }
 }
 
@@ -375,11 +415,12 @@ async function runViaGeminiCLI(
   task: AahpTask,
   onLog: (msg: string) => void,
   timeoutMs: number = 10 * 60 * 1000,
-  model: string = 'gemini-3.1-pro'
+  model: string = 'gemini-3.1-pro',
+  abortSignal?: AbortSignal
 ): Promise<AgentResult> {
   // -p "" triggers headless mode; actual prompt arrives on stdin
   const args = ['-m', model, '-p', '', '--approval-mode', 'yolo']
-  return runViaCLI('gemini', args, project, taskId, task, `Gemini/${model}`, onLog, timeoutMs)
+  return runViaCLI('gemini', args, project, taskId, task, `Gemini/${model}`, onLog, timeoutMs, abortSignal)
 }
 
 /**
@@ -392,10 +433,11 @@ async function runViaCodexCLI(
   task: AahpTask,
   onLog: (msg: string) => void,
   timeoutMs: number = 10 * 60 * 1000,
-  model: string = 'gpt-5.5'
+  model: string = 'gpt-5.5',
+  abortSignal?: AbortSignal
 ): Promise<AgentResult> {
   const args = ['exec', '--model', model, '--full-auto']
-  return runViaCLI('codex', args, project, taskId, task, `Codex/${model}`, onLog, timeoutMs)
+  return runViaCLI('codex', args, project, taskId, task, `Codex/${model}`, onLog, timeoutMs, abortSignal)
 }
 
 /** Run agent via Anthropic SDK(direct API key) - fallback if claude CLI not available */
@@ -406,7 +448,8 @@ async function runViaSDK(
   apiKey: string,
   onLog: (msg: string) => void,
   timeoutMs: number = 10 * 60 * 1000,
-  model: string = 'claude-opus-4-7'
+  model: string = 'claude-opus-4-7',
+  abortSignal?: AbortSignal
 ): Promise<AgentResult> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk')
 
@@ -425,6 +468,7 @@ async function runViaSDK(
   let committed = false
   let finalSummary = ''
   let timedOut = false
+  let aborted = false
   const deadline = Date.now() + timeoutMs
 
   const logFile = agentLogPath(project.name, project.repoPath)
@@ -445,17 +489,32 @@ async function runViaSDK(
       timedOut = true
       break
     }
+    if (abortSignal?.aborted) {
+      onLog(`\nSDK agent aborted by control endpoint`)
+      aborted = true
+      break
+    }
 
     turns++
     onLog(`\n-- Turn ${turns}/${MAX_TURNS} --`)
 
-    const response = await (client.messages as any).create({
-      model,
-      max_tokens: 8192,
-      system: systemPrompt,
-      tools: TOOL_DEFINITIONS,
-      messages,
-    })
+    let response: any
+    try {
+      response = await (client.messages as any).create({
+        model,
+        max_tokens: 8192,
+        system: systemPrompt,
+        tools: TOOL_DEFINITIONS,
+        messages,
+      }, abortSignal ? { signal: abortSignal } : undefined)
+    } catch (err) {
+      if (abortSignal?.aborted) {
+        onLog(`\nSDK agent aborted by control endpoint`)
+        aborted = true
+        break
+      }
+      throw err
+    }
 
     for (const block of response.content) {
       if (block.type === 'text' && block.text.trim()) {
@@ -487,9 +546,14 @@ async function runViaSDK(
   if (timedOut) onLog(`\nAgent was stopped due to timeout after ${turns} turns`)
 
   writeLog(logFile, `\n${'─'.repeat(60)}\n`)
-  writeLog(logFile, `[${ts()}] AAHP ${committed ? 'DONE  ' : 'FAILED'}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
+  const sdkStatus = aborted ? 'ABORT ' : (committed ? 'DONE  ' : 'FAILED')
+  writeLog(logFile, `[${ts()}] AAHP ${sdkStatus}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
 
-  return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile }
+  return {
+    success: committed && !aborted,
+    taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile,
+    aborted: aborted || undefined,
+  }
 }
 
 // ── GitHub Copilot backend (via GitHub Copilot API - OpenAI-compatible) ──────
@@ -507,7 +571,8 @@ async function runViaCopilot(
   task: AahpTask,
   copilotToken: string,
   onLog: (msg: string) => void,
-  timeoutMs: number = 10 * 60 * 1000
+  timeoutMs: number = 10 * 60 * 1000,
+  abortSignal?: AbortSignal
 ): Promise<AgentResult> {
   const systemPrompt = buildSystemPrompt(project, taskId, task)
   const logFile = agentLogPath(project.name, project.repoPath)
@@ -535,6 +600,7 @@ async function runViaCopilot(
   let committed = false
   let finalSummary = ''
   let timedOut = false
+  let aborted = false
   const deadline = Date.now() + timeoutMs
 
   onLog(`\nGitHub Copilot agent starting on [${taskId}]: ${task.title}`)
@@ -548,6 +614,11 @@ async function runViaCopilot(
       timedOut = true
       break
     }
+    if (abortSignal?.aborted) {
+      onLog(`\nCopilot agent aborted by control endpoint`)
+      aborted = true
+      break
+    }
 
     turns++
     onLog(`\n-- Turn ${turns}/${MAX_TURNS} --`)
@@ -556,6 +627,9 @@ async function runViaCopilot(
     // Per-request timeout: remaining wall-clock time, capped at 2 minutes per request
     const perRequestMs = Math.min(deadline - Date.now(), 2 * 60 * 1000)
     const reqTimer = setTimeout(() => ac.abort(), perRequestMs)
+    // Forward external abort (issue #28) to the in-flight HTTP request
+    const externalAbortHandler = () => ac.abort()
+    if (abortSignal) abortSignal.addEventListener('abort', externalAbortHandler, { once: true })
 
     let response: Response
     try {
@@ -578,15 +652,22 @@ async function runViaCopilot(
       })
     } catch (err) {
       clearTimeout(reqTimer)
+      if (abortSignal) abortSignal.removeEventListener('abort', externalAbortHandler)
       if (ac.signal.aborted) {
-        onLog(`\nCopilot request aborted (timeout)`)
-        timedOut = true
+        if (abortSignal?.aborted) {
+          onLog(`\nCopilot agent aborted by control endpoint`)
+          aborted = true
+        } else {
+          onLog(`\nCopilot request aborted (timeout)`)
+          timedOut = true
+        }
         break
       }
       onLog(`\nNetwork error: ${String(err)}`)
       break
     }
     clearTimeout(reqTimer)
+    if (abortSignal) abortSignal.removeEventListener('abort', externalAbortHandler)
 
     if (!response.ok) {
       const body = await response.text()
@@ -646,9 +727,14 @@ async function runViaCopilot(
   if (timedOut) onLog(`\nAgent was stopped due to timeout after ${turns} turns`)
 
   writeLog(logFile, `\n${'─'.repeat(60)}\n`)
-  writeLog(logFile, `[${ts()}] AAHP ${committed ? 'DONE  ' : 'FAILED'}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
+  const copilotStatus = aborted ? 'ABORT ' : (committed ? 'DONE  ' : 'FAILED')
+  writeLog(logFile, `[${ts()}] AAHP ${copilotStatus}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
 
-  return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile }
+  return {
+    success: committed && !aborted,
+    taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile,
+    aborted: aborted || undefined,
+  }
 }
 
 function markTaskDone(project: AahpProject, taskId: string, task: AahpTask, turns: number, agentName: string) {
@@ -752,7 +838,8 @@ export async function runAgent(
   explicitBackend: 'auto' | 'claude' | 'gemini' | 'codex' | 'copilot' | 'sdk' = 'auto',
   timeoutMinutes: number = 10,
   retryOptions?: RetryOptions,
-  model?: string
+  model?: string,
+  abortSignal?: AbortSignal
 ): Promise<AgentResult> {
   const { backend, copilotToken } = await resolveBackend(apiKey, explicitBackend)
   const timeoutMs = timeoutMinutes * 60 * 1000
@@ -777,11 +864,11 @@ export async function runAgent(
   }
 
   const run = (): Promise<AgentResult> => {
-    if (backend === 'claude-cli') return runViaClaudeCLI(project, taskId, task, onLog, timeoutMs)
-    if (backend === 'gemini')     return runViaGeminiCLI(project, taskId, task, onLog, timeoutMs, model)
-    if (backend === 'codex')      return runViaCodexCLI(project, taskId, task, onLog, timeoutMs, model)
-    if (backend === 'copilot')    return runViaCopilot(project, taskId, task, copilotToken, onLog, timeoutMs)
-    return runViaSDK(project, taskId, task, apiKey, onLog, timeoutMs, model)
+    if (backend === 'claude-cli') return runViaClaudeCLI(project, taskId, task, onLog, timeoutMs, abortSignal)
+    if (backend === 'gemini')     return runViaGeminiCLI(project, taskId, task, onLog, timeoutMs, model, abortSignal)
+    if (backend === 'codex')      return runViaCodexCLI(project, taskId, task, onLog, timeoutMs, model, abortSignal)
+    if (backend === 'copilot')    return runViaCopilot(project, taskId, task, copilotToken, onLog, timeoutMs, abortSignal)
+    return runViaSDK(project, taskId, task, apiKey, onLog, timeoutMs, model, abortSignal)
   }
 
   if (!retryOptions) return run()

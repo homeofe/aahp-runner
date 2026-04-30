@@ -16,6 +16,10 @@ export interface RunMetric {
   committed: boolean
   cpuAvg?: number         // average CPU % during run
   memPeakMB?: number      // peak memory in MB
+  // ── Abort marker (issue #28) ────────────────────────────────────────────────
+  // Set to true when the run was terminated by a POST /abort from the hub.
+  // Implies success=false; lets the hub distinguish abort from natural failure.
+  aborted?: boolean
 }
 
 export interface MetricsSummary {
