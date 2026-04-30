@@ -610,6 +610,11 @@ program
             committed: result.committed,
             cpuAvg: result.cpuAvg,
             memPeakMB: result.memPeakMB,
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+            cacheReadTokens: result.cacheReadTokens,
+            cacheCreationTokens: result.cacheCreationTokens,
+            modelId: result.modelId,
             aborted: result.aborted,
           })
 
@@ -783,6 +788,9 @@ program
                 taskTitle: fTask.title, backend,
                 durationMs: (fSt.finishedAt?.getTime() ?? 0) - (fSt.startedAt?.getTime() ?? 0),
                 turns: result.turns, success: result.committed, committed: result.committed,
+                inputTokens: result.inputTokens, outputTokens: result.outputTokens,
+                cacheReadTokens: result.cacheReadTokens, cacheCreationTokens: result.cacheCreationTokens,
+                modelId: result.modelId,
                 aborted: result.aborted })
               return result
             } catch (err) {
@@ -910,6 +918,11 @@ program
             committed: result.committed,
             cpuAvg: result.cpuAvg,
             memPeakMB: result.memPeakMB,
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+            cacheReadTokens: result.cacheReadTokens,
+            cacheCreationTokens: result.cacheCreationTokens,
+            modelId: result.modelId,
             aborted: result.aborted,
           })
 
@@ -1867,6 +1880,9 @@ program
               timestamp: new Date().toISOString(), repo: p.name, taskId, taskTitle: task.title,
               backend, durationMs: (st.finishedAt?.getTime() ?? Date.now()) - (st.startedAt?.getTime() ?? Date.now()),
               turns: result.turns, success: result.committed, committed: result.committed,
+              inputTokens: result.inputTokens, outputTokens: result.outputTokens,
+              cacheReadTokens: result.cacheReadTokens, cacheCreationTokens: result.cacheCreationTokens,
+              modelId: result.modelId,
             })
           } catch (err) {
             st.state = 'failed'

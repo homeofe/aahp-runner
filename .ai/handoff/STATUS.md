@@ -1,7 +1,7 @@
 # aahp-runner: Current State of the Nation
 
-> Last updated: 2026-04-12 by claude-sonnet-4-6
-> Commit: 66ce053
+> Last updated: 2026-04-27 by claude-opus-4-7
+> Commit: 5040492 (latest on main); PRs #29 #30 in review
 >
 > **Rule:** This file is rewritten (not appended) at the end of every session.
 > It reflects the *current* reality, not history. History lives in LOG.md.
@@ -11,10 +11,18 @@
 <!-- SECTION: summary -->
 ## Summary
 
-aahp-runner v0.2.0 - autonomous AAHP agent runner. All 12 tasks complete.
-Package published to npm as `@elvatis_com/aahp-runner` via GitHub Actions autopublish
-(release v0.2.0). All Dependabot PRs merged. All security alerts resolved.
-174 Vitest tests passing under TypeScript 6.0.
+aahp-runner v0.3.0 on main. Two PRs open from this session:
+- **#29** (T-013, closes #27): adds optional token-usage fields to RunMetric
+  and wires SDK + Copilot backends to populate them.
+- **#30** (T-014, closes #28): new HTTP control endpoint on 127.0.0.1 with
+  `/abort` route, sessions.json controlPort discovery, and abort plumbing
+  through every backend.
+
+Both unblock work in the sister repo `aahp-hub` (T-005 and T-004).
+
+209 Vitest tests passing on PR #30 (was 190 before this session). 0 build
+warnings, 0 type errors. CLAUDE.md has an unrelated styling diff from a
+parallel session, untouched here.
 <!-- /SECTION: summary -->
 
 ---
@@ -24,14 +32,16 @@ Package published to npm as `@elvatis_com/aahp-runner` via GitHub Actions autopu
 
 | Check | Result | Notes |
 |-------|--------|-------|
-| `npm run build` | (Verified) | TypeScript 6.0 compiles cleanly - 2026-04-12 |
-| `npm test` | (Verified) | 174 tests, 11 suites - 2026-04-12 |
-| `aahp list` | (Verified) | Reads config rootDir correctly |
-| `aahp run` | (Verified) | 3 backends: claude-cli, copilot, sdk |
-| `aahp config` | (Verified) | Reads/writes ~/.aahp-runner.json |
-| Security alerts | 0 open | All 5 resolved (3 vite + 2 picomatch) |
-| Dependabot PRs | 0 open | All 4 merged (#14, #15, #17 via gh CLI; #16 manual) |
-| npm publish | (Verified) | v0.2.0 on npm as @elvatis_com/aahp-runner - 2026-04-12 |
+| `npm run build` | (Verified) | Clean on both PR branches - 2026-04-27 |
+| `npm test` (#27 branch) | (Verified) | 195 tests, 12 suites - 2026-04-27 |
+| `npm test` (#28 branch) | (Verified) | 209 tests, 13 suites - 2026-04-27 |
+| `aahp list` | (Verified prior) | Reads config rootDir correctly |
+| `aahp run` | (Verified prior) | 5 backends: claude, gemini, codex, copilot, sdk |
+| `aahp config` | (Verified prior) | Reads/writes ~/.aahp-runner.json |
+| Security alerts | 2 open (Dependabot) | postcss + uuid - both transitive devDeps |
+| Dependabot PRs | 3 open | #24 sdk 0.91.1, #25 vitest 4.1.5, #26 ora 9.4.0 |
+| Open feature PRs | 2 (this session) | #29 (T-013), #30 (T-014) |
+| npm publish | v0.3.0 latest | Published via Auto-Publish workflow earlier today |
 <!-- /SECTION: build_health -->
 
 ---
@@ -41,36 +51,50 @@ Package published to npm as `@elvatis_com/aahp-runner` via GitHub Actions autopu
 
 | Component | Path | State | Notes |
 |-----------|------|-------|-------|
-| CLI entry point | `src/cli.ts` | (Verified) | 11 commands + wizard + --dry-run |
-| Agent backends | `src/agent.ts` | (Verified) | claude-cli, copilot, sdk + retry; node-fetch removed |
-| Project scanner | `src/scanner.ts` | (Verified) | Null task guards applied |
-| Scheduler | `src/scheduler.ts` | (Verified) | cron + Task Scheduler |
-| Tool definitions | `src/tools.ts` | (Verified) | 6 tools for Claude tool_use |
-| Status board | `src/status-board.ts` | (Verified) | Live terminal display |
-| Metrics store | `src/metrics-store.ts` | (Verified) | JSONL persistence |
-| Resource monitor | `src/resource-monitor.ts` | (Verified) | CPU/memory tracking |
-| Alerting | `src/alerting.ts` | (Verified) | Webhook/Slack |
-| Types | `src/types.ts` | (Verified) | AahpTask, AahpManifest, AahpProject |
-| Tests | `src/*.test.ts` | (Verified) | 174 tests / 11 suites - all passing |
-| VS Code extension | `vscode-extension/` | (Unknown) | Not reviewed this session |
+| CLI entry point | `src/cli.ts` | (Verified) | 11 commands + control-server lifecycle on PR #30 |
+| Agent backends | `src/agent.ts` | (Verified) | 5 backends (claude-cli, gemini, codex, copilot, sdk); abortSignal threading on PR #30 |
+| Project scanner | `src/scanner.ts` | (Verified prior) | Null task guards |
+| Scheduler | `src/scheduler.ts` | (Verified prior) | cron + Task Scheduler |
+| Tool definitions | `src/tools.ts` | (Verified prior) | 6 tools for tool_use |
+| Status board | `src/status-board.ts` | (Verified prior) | Live terminal display |
+| Metrics store | `src/metrics-store.ts` | (Verified) | JSONL persistence; token fields added on PR #29 |
+| Resource monitor | `src/resource-monitor.ts` | (Verified prior) | CPU/memory tracking |
+| Alerting | `src/alerting.ts` | (Verified prior) | Webhook/Slack |
+| Control server | `src/control-server.ts` | (Verified, PR) | NEW on PR #30 - HTTP /abort endpoint |
+| Init | `src/init.ts` | (Verified prior) | Bootstrap .ai/handoff/ |
+| Types | `src/types.ts` | (Verified prior) | AahpTask, AahpManifest, AahpProject |
+| Tests | `src/*.test.ts` | (Verified) | 209 on PR #30 (was 190 on main) |
 <!-- /SECTION: components -->
 
 ---
 
 <!-- SECTION: dependencies -->
-## Dependencies (current)
+## Dependencies (current on main)
 
 | Package | Version | Notes |
 |---------|---------|-------|
-| `@anthropic-ai/sdk` | ^0.82.0 | Bumped from 0.36; node-fetch removed (Node 20 native fetch) |
-| `typescript` | ^6.0.2 | Bumped from 5.9 |
-| `@types/node` | ^25.5.2 | Bumped |
-| `vitest` | ^4.1.2 | |
-| `vite` | ^8.0.5 | Security fix (was 8.0.3) |
+| `@anthropic-ai/sdk` | ^0.90.0 | Dependabot has #24 open for 0.91.1 |
+| `typescript` | ^6.0.3 | |
+| `@types/node` | ^25.6.0 | |
+| `vitest` | ^4.1.4 | Dependabot has #25 open for 4.1.5 |
 | `chalk` | ^5.3.0 | |
 | `commander` | ^14.0.3 | |
-| `ora` | ^9.3.0 | |
+| `ora` | ^9.3.0 | Dependabot has #26 open for 9.4.0 |
 <!-- /SECTION: dependencies -->
+
+---
+
+<!-- SECTION: in_flight -->
+## In Flight (this session)
+
+| ID | What | PR | State |
+|----|------|----|-------|
+| T-013 | Token totals in RunMetric (issue #27) | #29 | Open, awaiting review |
+| T-014 | /abort endpoint (issue #28) | #30 | Open, awaiting review |
+
+Both PRs are clean: type-check passes, full test suite passes, no merge
+conflicts at time of opening, no security alerts introduced.
+<!-- /SECTION: in_flight -->
 
 ---
 
@@ -79,25 +103,20 @@ Package published to npm as `@elvatis_com/aahp-runner` via GitHub Actions autopu
 
 | Gap | Severity | Description |
 |-----|----------|-------------|
-| VS Code extension review | LOW | vscode-extension/ not reviewed since initial session |
-| GitHub Actions Node 20 deprecation | LOW | actions/checkout@v4 and setup-node@v4 will need Node 24 by Sep 2026 |
+| Token usage for CLI backends | LOW | claude-cli, gemini, codex - need summary-line parsing |
+| Abort endpoint in `aahp overnight` | LOW | Only wired into `aahp run` per issue #28 scope |
+| Hub-side reading of new fields | EXTERNAL | aahp-hub T-004 and T-005 land after these PRs merge |
+| GitHub Actions Node 20 deprecation | LOW | Will need bump by Sep 2026 |
+| postcss + uuid Dependabot alerts | LOW | Transitive devDeps; no runtime impact |
 <!-- /SECTION: what_is_missing -->
 
 ---
 
-<!-- SECTION: resolved_this_session -->
-## Resolved This Session (2026-04-12)
+<!-- SECTION: cross_repo_unblocks -->
+## Cross-Repo Unblocks (when these PRs merge)
 
-| Item | Resolution |
-|------|-----------|
-| 3 vite security alerts (2 HIGH, 1 MEDIUM) | Fixed by merging PR #17 (vite 8.0.3->8.0.5) |
-| 2 picomatch security alerts | Already fixed in prior session |
-| Dependabot PR #15 (@types/node) | Merged via `gh pr merge` |
-| Dependabot PR #17 (vite) | Merged via `gh pr merge` |
-| Dependabot PR #14 (typescript 6.0) | Merged via `gh pr merge` |
-| Dependabot PR #16 (@anthropic-ai/sdk 0.82) | Conflict resolved manually; node-fetch import removed |
-| TypeScript 6.0 build error | `import('node-fetch')` removed (unnecessary in Node 20+) |
-| Tests not re-run after scanner.ts changes | 174 tests verified passing |
-| npm package unpublished | v0.2.0 published as @elvatis_com/aahp-runner via GitHub Actions |
-| Wrong README install command | Fixed: npm install -g @elvatis_com/aahp-runner |
-<!-- /SECTION: resolved_this_session -->
+| Sister repo | Task | Unblocks because |
+|-------------|------|------------------|
+| aahp-hub | T-005 (token column) | RunMetric exposes inputTokens / outputTokens / modelId |
+| aahp-hub | T-004 (abort button) | sessions.json exposes controlPort; POST /abort works |
+<!-- /SECTION: cross_repo_unblocks -->
