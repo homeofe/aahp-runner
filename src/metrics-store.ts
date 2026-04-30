@@ -16,6 +16,15 @@ export interface RunMetric {
   committed: boolean
   cpuAvg?: number         // average CPU % during run
   memPeakMB?: number      // peak memory in MB
+  // ── LLM token usage (issue #27) ─────────────────────────────────────────────
+  // All optional so historical JSONL lines stay valid. Populated where the
+  // backend exposes a `usage` payload (sdk + copilot today). CLI backends
+  // (claude/gemini/codex) leave these undefined until we parse their output.
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number      // Anthropic prompt caching - cached tokens read
+  cacheCreationTokens?: number  // Anthropic prompt caching - tokens written to cache
+  modelId?: string              // exact model used (for cost calc on the hub side)
 }
 
 export interface MetricsSummary {
