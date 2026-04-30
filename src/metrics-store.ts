@@ -25,6 +25,10 @@ export interface RunMetric {
   cacheReadTokens?: number      // Anthropic prompt caching - cached tokens read
   cacheCreationTokens?: number  // Anthropic prompt caching - tokens written to cache
   modelId?: string              // exact model used (for cost calc on the hub side)
+  // ── Abort marker (issue #28) ────────────────────────────────────────────────
+  // Set to true when the run was terminated by a POST /abort from the hub.
+  // Implies success=false; lets the hub distinguish abort from natural failure.
+  aborted?: boolean
 }
 
 export interface MetricsSummary {

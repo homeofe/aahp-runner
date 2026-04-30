@@ -13,6 +13,7 @@ import { loadConfig, saveConfig, registerScheduler, unregisterScheduler } from '
 import { StatusBoard, AgentStatus, LOG_DIR, agentLogPath, writeLog } from './status-board.js'
 import { recordMetric, loadMetrics, summarizeMetrics, metricsFilePath, getAvgDuration } from './metrics-store.js'
 import { sendAlert } from './alerting.js'
+import { startControlServer, type ControlServer } from './control-server.js'
 import { execSync } from 'child_process'
 
 const DEFAULT_ROOT= process.env['AAHP_ROOT'] ?? path.join(os.homedir(), 'Development')
@@ -498,6 +499,16 @@ program
       const limitLabel = maxConcurrent > 0 ? ` (max ${maxConcurrent} at a time)` : ' in parallel'
       console.log(chalk.bold(`\n🚀 Spawning ${targets.length} agents${limitLabel}...`))
 
+      // Issue #28: start localhost control server so the hub can POST /abort.
+      // Port is published to ~/.aahp/sessions.json under controlPort.
+      let ctrlServer: ControlServer | undefined
+      try {
+        ctrlServer = await startControlServer()
+        console.log(chalk.gray(`   Control endpoint: http://127.0.0.1:${ctrlServer.port}/abort`))
+      } catch (err) {
+        console.log(chalk.yellow(`   Warning: control server failed to start (${(err as Error).message}). Abort endpoint unavailable.`))
+      }
+
       // Build status entries, one per target
       const statuses: AgentStatus[] = targets.map(p => {
         const top = getTopTask(p)
@@ -553,25 +564,38 @@ program
             // secure-dev-ai scan failed - continue without blocking
           }
 
-          const result = await runAgent(project, taskId, task, apiKey, msg => {
-            // Only update the last meaningful line for the status board (skip blanks)
-            const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
-            if (line) st.lastLine = line.trim()
+          // Issue #28: register this agent with the control server so it can be aborted
+          const abortCtrl = new AbortController()
+          ctrlServer?.register({
+            repoName: project.name,
+            taskId,
+            abort: () => abortCtrl.abort(),
+          })
 
-            // Extract turn progress from SDK/Copilot output (e.g., "-- Turn 5/30 --")
-            const turnMatch = msg.match(/Turn (\d+)\/(\d+)/)
-            if (turnMatch) {
-              st.currentTurn = parseInt(turnMatch[1]!, 10)
-              st.maxTurns = parseInt(turnMatch[2]!, 10)
-            }
+          let result
+          try {
+            result = await runAgent(project, taskId, task, apiKey, msg => {
+              // Only update the last meaningful line for the status board (skip blanks)
+              const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
+              if (line) st.lastLine = line.trim()
 
-            board.refresh()
-          }, backend, timeoutMinutes, undefined, model)
+              // Extract turn progress from SDK/Copilot output (e.g., "-- Turn 5/30 --")
+              const turnMatch = msg.match(/Turn (\d+)\/(\d+)/)
+              if (turnMatch) {
+                st.currentTurn = parseInt(turnMatch[1]!, 10)
+                st.maxTurns = parseInt(turnMatch[2]!, 10)
+              }
 
-          st.state = result.success ? 'done' : 'failed'
+              board.refresh()
+            }, backend, timeoutMinutes, undefined, model, abortCtrl.signal)
+          } finally {
+            ctrlServer?.unregister(project.name, taskId)
+          }
+
+          st.state = result.aborted ? 'failed' : (result.success ? 'done' : 'failed')
           st.committed = result.committed
           st.finishedAt = new Date()
-          st.lastLine = result.success ? `committed` : 'no commit detected'
+          st.lastLine = result.aborted ? 'aborted' : (result.success ? 'committed' : 'no commit detected')
           board.refresh()
 
           recordMetric({
@@ -591,6 +615,7 @@ program
             cacheReadTokens: result.cacheReadTokens,
             cacheCreationTokens: result.cacheCreationTokens,
             modelId: result.modelId,
+            aborted: result.aborted,
           })
 
           return result
@@ -599,6 +624,8 @@ program
           st.finishedAt = new Date()
           st.lastLine = String(err).slice(0, 60)
           board.refresh()
+          // Defensive: in case the agent threw before our finally ran
+          ctrlServer?.unregister(project.name, taskId)
 
           recordMetric({
             timestamp: new Date().toISOString(),
@@ -743,12 +770,15 @@ program
             fSt.state = 'running'
             fSt.startedAt = new Date()
             followBoard.refresh()
+            // Issue #28: register follow-up agent for abort support
+            const fAbort = new AbortController()
+            ctrlServer?.register({ repoName: project.name, taskId: fTaskId, abort: () => fAbort.abort() })
             try {
               const result = await runAgent(project, fTaskId, fTask, apiKey, msg => {
                 const line = msg.replace(/\x1B\[[0-9;]*m/g, '').split('\n').reverse().find(l => l.trim())
                 if (line) fSt.lastLine = line.trim()
                 followBoard.refresh()
-              }, backend, timeoutMinutes, undefined, model)
+              }, backend, timeoutMinutes, undefined, model, fAbort.signal)
               fSt.state = result.committed ? 'done' : 'failed'
               fSt.committed = result.committed
               fSt.finishedAt = new Date()
@@ -760,7 +790,8 @@ program
                 turns: result.turns, success: result.committed, committed: result.committed,
                 inputTokens: result.inputTokens, outputTokens: result.outputTokens,
                 cacheReadTokens: result.cacheReadTokens, cacheCreationTokens: result.cacheCreationTokens,
-                modelId: result.modelId })
+                modelId: result.modelId,
+                aborted: result.aborted })
               return result
             } catch (err) {
               fSt.state = 'failed'
@@ -768,6 +799,8 @@ program
               fSt.lastLine = String(err).slice(0, 60)
               followBoard.refresh()
               return undefined
+            } finally {
+              ctrlServer?.unregister(project.name, fTaskId)
             }
           })
 
@@ -779,12 +812,25 @@ program
         }
       }
 
+      // Issue #28: tear down the control server now that all agents (including
+      // any follow-up rounds) are done. Removes `controlPort` from sessions.json.
+      await ctrlServer?.stop()
       return
     }
 
     // Sequential mode (single project or interactive)
     // When --follow-up is set, keep looping until no more tasks remain in any of the target repos.
     const seqProjectNames = new Set(targets.map(p => p.name))
+
+    // Issue #28: also expose a control endpoint in sequential mode
+    let seqCtrl: ControlServer | undefined
+    try {
+      seqCtrl = await startControlServer()
+      console.log(chalk.gray(`Control endpoint: http://127.0.0.1:${seqCtrl.port}/abort`))
+    } catch (err) {
+      console.log(chalk.yellow(`Warning: control server failed to start (${(err as Error).message}). Abort endpoint unavailable.`))
+    }
+
     let seqRound = 0
     const MAX_SEQ_ROUNDS = 50
     // eslint-disable-next-line no-constant-condition
@@ -854,8 +900,11 @@ program
         }
 
         const seqStart = Date.now()
+        // Issue #28: register sequential agent for abort support
+        const seqAbort = new AbortController()
+        seqCtrl?.register({ repoName: project.name, taskId, abort: () => seqAbort.abort() })
         try {
-          const result = await runAgent(project, taskId, task, apiKey, msg => console.log(chalk.gray(msg)), backend, timeoutMinutes, undefined, model)
+          const result = await runAgent(project, taskId, task, apiKey, msg => console.log(chalk.gray(msg)), backend, timeoutMinutes, undefined, model, seqAbort.signal)
 
           recordMetric({
             timestamp: new Date().toISOString(),
@@ -874,9 +923,12 @@ program
             cacheReadTokens: result.cacheReadTokens,
             cacheCreationTokens: result.cacheCreationTokens,
             modelId: result.modelId,
+            aborted: result.aborted,
           })
 
-          if (result.success) {
+          if (result.aborted) {
+            console.log(chalk.yellow(`\n🛑 ${project.name} [${taskId}] aborted by control endpoint`))
+          } else if (result.success) {
             console.log(chalk.green(`\n✅ ${project.name} [${taskId}] completed in ${result.turns} turns`))
           } else {
             console.log(chalk.yellow(`\n⚠️  ${project.name} [${taskId}] finished without committing (${result.turns} turns)`))
@@ -895,6 +947,8 @@ program
             committed: false,
           })
           console.error(chalk.red(`\n❌ Agent failed on ${project.name}: ${String(err)}`))
+        } finally {
+          seqCtrl?.unregister(project.name, taskId)
         }
       }
 
@@ -904,6 +958,9 @@ program
       // Without --follow-up, run each target once and stop
       if (!opts.followUp) break
     }
+
+    // Issue #28: tear down the sequential-mode control server.
+    await seqCtrl?.stop()
   })
 
 // ── config ────────────────────────────────────────────────────────────────────
