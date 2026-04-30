@@ -17,6 +17,14 @@ export interface AgentResult {
   logFile: string   // path to full log
   cpuAvg?: number   // average CPU % during run
   memPeakMB?: number // peak memory in MB
+  // ── LLM token usage (issue #27) ─────────────────────────────────────────────
+  // Populated by backends that expose a `usage` payload (sdk + copilot today).
+  // CLI backends leave these undefined.
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+  cacheCreationTokens?: number
+  modelId?: string
 }
 
 type Backend = 'claude-cli' | 'gemini' | 'codex' | 'copilot' | 'sdk' | 'none'
@@ -427,6 +435,15 @@ async function runViaSDK(
   let timedOut = false
   const deadline = Date.now() + timeoutMs
 
+  // ── Token usage accumulators (issue #27) ────────────────────────────────────
+  // Each Anthropic response carries a `usage` block with input/output tokens
+  // and (when prompt caching is active) cache_read / cache_creation counts.
+  // We sum across turns to capture the full session cost.
+  let inputTokens = 0
+  let outputTokens = 0
+  let cacheReadTokens = 0
+  let cacheCreationTokens = 0
+
   const logFile = agentLogPath(project.name, project.repoPath)
   const ts = () => new Date().toISOString().slice(11, 19)
   const startMs = Date.now()
@@ -456,6 +473,15 @@ async function runViaSDK(
       tools: TOOL_DEFINITIONS,
       messages,
     })
+
+    // Accumulate token usage per turn (issue #27)
+    if (response.usage && typeof response.usage === 'object') {
+      const u = response.usage as Record<string, unknown>
+      if (typeof u['input_tokens'] === 'number') inputTokens += u['input_tokens']
+      if (typeof u['output_tokens'] === 'number') outputTokens += u['output_tokens']
+      if (typeof u['cache_read_input_tokens'] === 'number') cacheReadTokens += u['cache_read_input_tokens']
+      if (typeof u['cache_creation_input_tokens'] === 'number') cacheCreationTokens += u['cache_creation_input_tokens']
+    }
 
     for (const block of response.content) {
       if (block.type === 'text' && block.text.trim()) {
@@ -488,8 +514,14 @@ async function runViaSDK(
 
   writeLog(logFile, `\n${'─'.repeat(60)}\n`)
   writeLog(logFile, `[${ts()}] AAHP ${committed ? 'DONE  ' : 'FAILED'}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
+  if (inputTokens || outputTokens) {
+    writeLog(logFile, `[${ts()}] TOKENS      in:${inputTokens} out:${outputTokens} cache_read:${cacheReadTokens} cache_create:${cacheCreationTokens}\n`)
+  }
 
-  return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile }
+  return {
+    success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile,
+    inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, modelId: model,
+  }
 }
 
 // ── GitHub Copilot backend (via GitHub Copilot API - OpenAI-compatible) ──────
@@ -536,6 +568,11 @@ async function runViaCopilot(
   let finalSummary = ''
   let timedOut = false
   const deadline = Date.now() + timeoutMs
+
+  // Token usage accumulators (issue #27). OpenAI-compatible `usage` block:
+  // { prompt_tokens, completion_tokens }. No prompt-cache fields on this API.
+  let inputTokens = 0
+  let outputTokens = 0
 
   onLog(`\nGitHub Copilot agent starting on [${taskId}]: ${task.title}`)
   onLog(`   Backend: GitHub Copilot (${MODEL})`)
@@ -602,6 +639,13 @@ async function runViaCopilot(
     const choice = data.choices?.[0]
     if (!choice) break
 
+    // Accumulate token usage (issue #27)
+    if (data.usage && typeof data.usage === 'object') {
+      const u = data.usage as Record<string, unknown>
+      if (typeof u['prompt_tokens'] === 'number') inputTokens += u['prompt_tokens']
+      if (typeof u['completion_tokens'] === 'number') outputTokens += u['completion_tokens']
+    }
+
     const msg = choice.message
     if (msg.content?.trim()) {
       onLog(`\n${msg.content}`)
@@ -647,8 +691,14 @@ async function runViaCopilot(
 
   writeLog(logFile, `\n${'─'.repeat(60)}\n`)
   writeLog(logFile, `[${ts()}] AAHP ${committed ? 'DONE  ' : 'FAILED'}  ${taskId} · committed:${committed} · ${Math.round((Date.now() - startMs) / 1000)}s\n`)
+  if (inputTokens || outputTokens) {
+    writeLog(logFile, `[${ts()}] TOKENS      in:${inputTokens} out:${outputTokens}\n`)
+  }
 
-  return { success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile }
+  return {
+    success: committed, taskId, turns, committed, summary: finalSummary.slice(0, 200), logFile,
+    inputTokens, outputTokens, modelId: `github-copilot/${MODEL}`,
+  }
 }
 
 function markTaskDone(project: AahpProject, taskId: string, task: AahpTask, turns: number, agentName: string) {

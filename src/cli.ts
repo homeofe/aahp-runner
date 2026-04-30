@@ -586,6 +586,11 @@ program
             committed: result.committed,
             cpuAvg: result.cpuAvg,
             memPeakMB: result.memPeakMB,
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+            cacheReadTokens: result.cacheReadTokens,
+            cacheCreationTokens: result.cacheCreationTokens,
+            modelId: result.modelId,
           })
 
           return result
@@ -752,7 +757,10 @@ program
               recordMetric({ timestamp: new Date().toISOString(), repo: project.name, taskId: fTaskId,
                 taskTitle: fTask.title, backend,
                 durationMs: (fSt.finishedAt?.getTime() ?? 0) - (fSt.startedAt?.getTime() ?? 0),
-                turns: result.turns, success: result.committed, committed: result.committed })
+                turns: result.turns, success: result.committed, committed: result.committed,
+                inputTokens: result.inputTokens, outputTokens: result.outputTokens,
+                cacheReadTokens: result.cacheReadTokens, cacheCreationTokens: result.cacheCreationTokens,
+                modelId: result.modelId })
               return result
             } catch (err) {
               fSt.state = 'failed'
@@ -861,6 +869,11 @@ program
             committed: result.committed,
             cpuAvg: result.cpuAvg,
             memPeakMB: result.memPeakMB,
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+            cacheReadTokens: result.cacheReadTokens,
+            cacheCreationTokens: result.cacheCreationTokens,
+            modelId: result.modelId,
           })
 
           if (result.success) {
@@ -1810,6 +1823,9 @@ program
               timestamp: new Date().toISOString(), repo: p.name, taskId, taskTitle: task.title,
               backend, durationMs: (st.finishedAt?.getTime() ?? Date.now()) - (st.startedAt?.getTime() ?? Date.now()),
               turns: result.turns, success: result.committed, committed: result.committed,
+              inputTokens: result.inputTokens, outputTokens: result.outputTokens,
+              cacheReadTokens: result.cacheReadTokens, cacheCreationTokens: result.cacheCreationTokens,
+              modelId: result.modelId,
             })
           } catch (err) {
             st.state = 'failed'

@@ -182,3 +182,92 @@ describe('metrics filtering', () => {
     expect(metric.memPeakMB).toBe(512)
   })
 })
+
+// ── Token usage fields (issue #27) ───────────────────────────────────────────
+
+describe('metrics token usage fields', () => {
+  it('round-trips a record with all token fields populated', () => {
+    const metric = makeSampleMetric({
+      inputTokens: 1234,
+      outputTokens: 567,
+      cacheReadTokens: 200,
+      cacheCreationTokens: 50,
+      modelId: 'claude-opus-4-7',
+    })
+    const line = JSON.stringify(metric)
+    const parsed = JSON.parse(line) as RunMetric
+    expect(parsed.inputTokens).toBe(1234)
+    expect(parsed.outputTokens).toBe(567)
+    expect(parsed.cacheReadTokens).toBe(200)
+    expect(parsed.cacheCreationTokens).toBe(50)
+    expect(parsed.modelId).toBe('claude-opus-4-7')
+  })
+
+  it('parses historical records without token fields (backwards compat)', () => {
+    // A v0.2.x line written before issue #27 landed.
+    const oldLine = JSON.stringify({
+      timestamp: '2026-02-01T12:00:00Z',
+      repo: 'old-repo',
+      taskId: 'T-001',
+      taskTitle: 'Old task',
+      backend: 'sdk',
+      durationMs: 60000,
+      turns: 3,
+      success: true,
+      committed: true,
+    })
+    const parsed = JSON.parse(oldLine) as RunMetric
+    expect(parsed.inputTokens).toBeUndefined()
+    expect(parsed.outputTokens).toBeUndefined()
+    expect(parsed.cacheReadTokens).toBeUndefined()
+    expect(parsed.cacheCreationTokens).toBeUndefined()
+    expect(parsed.modelId).toBeUndefined()
+    // Existing fields still present
+    expect(parsed.success).toBe(true)
+    expect(parsed.turns).toBe(3)
+  })
+
+  it('handles partial token data (e.g. backend without cache support)', () => {
+    // Copilot exposes only prompt_tokens / completion_tokens, no cache fields.
+    const metric = makeSampleMetric({
+      backend: 'copilot',
+      inputTokens: 800,
+      outputTokens: 400,
+      modelId: 'github-copilot/gpt-4o',
+    })
+    const line = JSON.stringify(metric)
+    const parsed = JSON.parse(line) as RunMetric
+    expect(parsed.inputTokens).toBe(800)
+    expect(parsed.outputTokens).toBe(400)
+    expect(parsed.cacheReadTokens).toBeUndefined()
+    expect(parsed.cacheCreationTokens).toBeUndefined()
+    expect(parsed.modelId).toBe('github-copilot/gpt-4o')
+  })
+
+  it('mixed JSONL: historical + new records both readable', () => {
+    const old = JSON.stringify({
+      timestamp: '2026-02-01T12:00:00Z',
+      repo: 'r1', taskId: 'T-001', taskTitle: 'old', backend: 'sdk',
+      durationMs: 1000, turns: 1, success: true, committed: true,
+    })
+    const fresh = JSON.stringify(makeSampleMetric({
+      inputTokens: 100, outputTokens: 50, modelId: 'claude-opus-4-7',
+    }))
+    fs.writeFileSync(metricsFile, old + '\n' + fresh + '\n')
+
+    const lines = fs.readFileSync(metricsFile, 'utf8').split('\n').filter(Boolean)
+    const parsed: RunMetric[] = lines.map(l => JSON.parse(l) as RunMetric)
+    expect(parsed).toHaveLength(2)
+    expect(parsed[0]!.inputTokens).toBeUndefined()  // old record
+    expect(parsed[1]!.inputTokens).toBe(100)        // new record
+  })
+
+  it('zero-valued token counts are preserved (not stripped)', () => {
+    // A failed-on-first-call run might genuinely have 0/0 tokens.
+    const metric = makeSampleMetric({ inputTokens: 0, outputTokens: 0 })
+    const line = JSON.stringify(metric)
+    const parsed = JSON.parse(line) as RunMetric
+    expect(parsed.inputTokens).toBe(0)
+    expect(parsed.outputTokens).toBe(0)
+  })
+})
