@@ -120,3 +120,6 @@ conflicts at time of opening, no security alerts introduced.
 | aahp-hub | T-005 (token column) | RunMetric exposes inputTokens / outputTokens / modelId |
 | aahp-hub | T-004 (abort button) | sessions.json exposes controlPort; POST /abort works |
 <!-- /SECTION: cross_repo_unblocks -->
+
+<!-- aahp-gate -->
+_AAHP verify gate: v3.0.2 synced 2026-06-20._

@@ -2,199 +2,61 @@
   "aahp_version": "3.0",
   "project": "aahp-runner",
   "last_session": {
-    "agent": "claude-opus-4-7",
-    "session_id": "T-013-T-014-2026-04-27",
-    "timestamp": "2026-04-27T13:55:00.000Z",
-    "commit": "5040492",
-    "phase": "implementation",
-    "duration_minutes": 45,
-    "prs_opened": [29, 30],
-    "issues_closed_by_prs": [27, 28]
+    "agent": "cli-tool",
+    "session_id": "cli-1781963528",
+    "timestamp": "2026-06-20T13:52:08Z",
+    "commit": "f08c2c0",
+    "phase": "fix",
+    "duration_minutes": 0
   },
   "files": {
     "STATUS.md": {
-      "checksum": "sha256:03e2fb106c353c073bbf30ba8994e4869847aae20f19f7fea0bee91bb14ee9d2",
-      "updated": "2026-04-27T13:55:00Z",
-      "lines": 122,
-      "summary": "v0.3.0 on main; PRs #29 (T-013) and #30 (T-014) open. 209 tests on PR branches."
+      "checksum": "sha256:74d02ac4b26cb7ed1c94610f7d269708272c9b081d78cee85b8c954d15a1cb3a",
+      "updated": "2026-06-20T13:52:07Z",
+      "lines": 125,
+      "summary": "(no summary available)"
     },
     "NEXT_ACTIONS.md": {
-      "checksum": "sha256:a76c3b28164fbbb8dfdd77cc9c68607bd7d03f38b0e67c3f0baecedca76730a3",
-      "updated": "2026-04-27T13:55:00Z",
+      "checksum": "sha256:a8b69ae79e960b4d4c2cc0b8f5d8d4b58745284ddefbfd09085378acbd0f1309",
+      "updated": "2026-04-30T14:29:00Z",
       "lines": 74,
-      "summary": "T-013 and T-014 in_progress (PRs open). Future: CLI token parsing, overnight abort wiring."
+      "summary": "(no summary available)"
     },
     "LOG.md": {
-      "checksum": "sha256:1d5ab6bef122d325dc37d8767802899c37675b01cd6e3832b1ea283b2db435b8",
-      "updated": "2026-04-27T13:55:00Z",
+      "checksum": "sha256:cdf4a8e76f706387d14e7edafe98398b9da6d136f2b58553fbfadf7e36fd4ff4",
+      "updated": "2026-04-30T14:02:25Z",
       "lines": 194,
-      "summary": "T-013 (#27) and T-014 (#28) shipped as separate PRs. 19 new control-server tests, 5 new metrics tests."
+      "summary": "﻿# aahp-runner: Agent Journal"
     },
     "DASHBOARD.md": {
       "checksum": "sha256:c80de38f9d2658c6c1ad8ccbc326379902781b410373e1413a76bf245178bbc4",
-      "updated": "2026-04-12T14:06:00Z",
+      "updated": "2026-04-12T14:07:48Z",
       "lines": 112,
-      "summary": "Stale: still reflects v0.2.0 era. Update on next handoff."
+      "summary": "(no summary available)"
     },
     "TRUST.md": {
-      "checksum": "sha256:0e69f8262082f9a7fa0796061c0080d0280d509d7fa3e60fa28032a66ea7a696",
-      "updated": "2026-02-27T02:31:15Z",
+      "checksum": "sha256:0f5c0ac30be972af0f9dfa0f9c36e1a2e23dad1d29de6d61caa5b30348ceaa17",
+      "updated": "2026-04-12T13:47:10Z",
       "lines": 76,
-      "summary": "Build verified. CLI assumed. Scheduler untested."
+      "summary": "(no summary available)"
     },
     "CONVENTIONS.md": {
-      "checksum": "sha256:38aed29c4e3ce6912dec72778d311de7550466b183aad83799b2dcf6a73d7d50",
-      "updated": "2026-02-27T02:31:15Z",
+      "checksum": "sha256:97635258e88ec1719ebea8000b7568697bf212002aa7d5b5f4490a7f67bf6f93",
+      "updated": "2026-04-12T13:47:10Z",
       "lines": 120,
-      "summary": "TypeScript/ESM conventions, commit format, file organization"
+      "summary": "(no summary available)"
     },
     "WORKFLOW.md": {
-      "checksum": "sha256:4681020d052ba664f02915d86823eed3406710c1850854e17e1dee8638cfadec",
-      "updated": "2026-02-27T02:31:15Z",
+      "checksum": "sha256:1fee503998c86b617d9ef6b2da1e93750b47e2738f52dfcfcda3c326704baf26",
+      "updated": "2026-04-12T13:47:10Z",
       "lines": 132,
-      "summary": "4-phase pipeline: research, architect, implement, review"
+      "summary": "﻿# aahp-runner: Autonomous Multi-Agent Workflow"
     }
   },
-  "quick_context": "aahp-runner v0.3.0 on main; two PRs open from this session. PR #29 (T-013, closes issue #27) adds optional token-usage fields to RunMetric (inputTokens/outputTokens/cacheReadTokens/cacheCreationTokens/modelId), wired into the SDK and Copilot backends; CLI backends leave them undefined. PR #30 (T-014, closes issue #28) adds a localhost-only HTTP control server with POST /abort, publishes the port via sessions.json controlPort, and threads abortSignal through every backend with backend-appropriate handling (SDK signal, Copilot fetch chain, child-process SIGTERM/SIGKILL). Both unblock aahp-hub T-005 and T-004 respectively. 209 tests pass on PR #30, 195 on PR #29 (was 190 on main). Awaiting review.",
+  "quick_context": "(no summary available) (no summary available) ",
   "token_budget": {
-    "manifest_only": 90,
-    "manifest_plus_core": 1300,
-    "full_read": 5000
-  },
-  "next_task_id": 15,
-  "tasks": {
-    "T-001": {
-      "title": "Add GitHub Actions CI pipeline",
-      "status": "done",
-      "priority": "medium",
-      "depends_on": [],
-      "created": "2026-02-27T02:31:15Z",
-      "completed": "2026-02-27T03:09:02.937Z"
-    },
-    "T-002": {
-      "title": "Add automated tests (Vitest)",
-      "status": "done",
-      "priority": "medium",
-      "depends_on": [],
-      "created": "2026-02-27T02:31:15Z",
-      "completed": "2026-02-27T03:31:21.694Z"
-    },
-    "T-003": {
-      "title": "Publish to npm",
-      "status": "done",
-      "priority": "low",
-      "depends_on": [],
-      "created": "2026-02-27T02:31:15Z",
-      "completed": "2026-02-27T03:53:15.485Z"
-    },
-    "T-004": {
-      "title": "Add Linux/macOS cron support",
-      "status": "done",
-      "priority": "low",
-      "depends_on": [],
-      "created": "2026-02-27T02:31:15Z",
-      "completed": "2026-02-27T04:06:28.344Z"
-    },
-    "T-005": {
-      "title": "Add `aahp status` quick-look command",
-      "status": "done",
-      "priority": "medium",
-      "depends_on": [],
-      "created": "2026-03-02T03:22:00Z",
-      "completed": "2026-03-19T05:19:00.000Z",
-      "github_issue": 1,
-      "github_repo": "homeofe/aahp-runner",
-      "notes": "Implemented as `aahp status --quick` flag."
-    },
-    "T-006": {
-      "title": "Add `aahp archive` command for LOG.md rotation",
-      "status": "done",
-      "priority": "medium",
-      "depends_on": [],
-      "created": "2026-03-02T03:22:00Z",
-      "completed": "2026-03-19T05:19:00.000Z",
-      "github_issue": 2,
-      "github_repo": "homeofe/aahp-runner",
-      "notes": "Moves LOG.md to .ai/handoff/logs/LOG-YYYY-MM-DD.md. 14 tests."
-    },
-    "T-007": {
-      "title": "Add agent execution tests",
-      "status": "done",
-      "priority": "high",
-      "depends_on": [],
-      "created": "2026-03-02T12:00:00Z",
-      "completed": "2026-03-19T05:19:00.000Z",
-      "github_issue": 3,
-      "github_repo": "homeofe/aahp-runner",
-      "notes": "30 tests covering all backends, commit detection, logging, error handling."
-    },
-    "T-008": {
-      "title": "Add retry logic with exponential backoff",
-      "status": "done",
-      "priority": "medium",
-      "depends_on": [],
-      "created": "2026-03-02T12:00:00Z",
-      "completed": "2026-03-19T05:19:00.000Z",
-      "github_issue": 4,
-      "github_repo": "homeofe/aahp-runner",
-      "notes": "withRetry<T>() exported from agent.ts. 18 tests."
-    },
-    "T-009": {
-      "title": "Add --dry-run flag to aahp run",
-      "status": "done",
-      "priority": "low",
-      "depends_on": [],
-      "created": "2026-03-02T12:00:00Z",
-      "github_issue": 5,
-      "github_repo": "homeofe/aahp-runner",
-      "completed": "2026-04-12T13:54:06.855Z"
-    },
-    "T-010": {
-      "title": "Merge Dependabot PRs and fix security alerts",
-      "status": "done",
-      "priority": "high",
-      "depends_on": [],
-      "created": "2026-04-12T16:00:00Z",
-      "completed": "2026-04-12T14:04:00.000Z",
-      "notes": "PRs #15/#17/#14 merged via gh CLI. PR #16 resolved manually. 0 vulnerabilities."
-    },
-    "T-011": {
-      "title": "Run tests after scanner bug fixes",
-      "status": "done",
-      "priority": "medium",
-      "depends_on": ["T-010"],
-      "created": "2026-04-12T16:00:00Z",
-      "completed": "2026-04-12T14:04:30.000Z",
-      "notes": "174 tests passing in 11 suites under TypeScript 6.0."
-    },
-    "T-012": {
-      "title": "Publish v0.2.0 to npm",
-      "status": "done",
-      "priority": "medium",
-      "depends_on": ["T-010", "T-011"],
-      "created": "2026-04-12T16:00:00Z",
-      "completed": "2026-04-12T14:06:00.000Z",
-      "notes": "Renamed to @elvatis_com/aahp-runner. GitHub release v0.2.0 created."
-    },
-    "T-013": {
-      "title": "Capture LLM token totals in RunMetric (issue #27)",
-      "status": "in_progress",
-      "priority": "medium",
-      "depends_on": [],
-      "created": "2026-04-27T13:30:00Z",
-      "github_issue": 27,
-      "github_repo": "homeofe/aahp-runner",
-      "notes": "PR #29 open. Branch feat/issue-27-token-metrics. Adds inputTokens/outputTokens/cacheReadTokens/cacheCreationTokens/modelId to RunMetric and AgentResult. SDK + Copilot wired; CLI backends leave undefined. 5 new tests, 195 pass total. Unblocks aahp-hub T-005."
-    },
-    "T-014": {
-      "title": "HTTP /abort endpoint for running agents (issue #28)",
-      "status": "in_progress",
-      "priority": "high",
-      "depends_on": [],
-      "created": "2026-04-27T13:35:00Z",
-      "github_issue": 28,
-      "github_repo": "homeofe/aahp-runner",
-      "notes": "PR #30 open. Branch feat/issue-28-abort-endpoint. New src/control-server.ts; controlPort published via sessions.json; abortSignal threaded through all backends; aborted flag on RunMetric. 19 new tests, 209 pass total. Unblocks aahp-hub T-004."
-    }
+    "manifest_only": 85,
+    "manifest_plus_core": 1841,
+    "full_read": 7416
   }
 }
