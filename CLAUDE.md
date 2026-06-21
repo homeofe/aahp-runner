@@ -76,3 +76,10 @@ This project uses the [AI Workflow Improvement Framework](https://github.com/hom
 - **Review**: Use a different provider than the implementer
 
 See `.llm/ROUTING.md` for the full decision matrix.
+
+## Style Rules
+
+- Never use em dashes (—, U+2014) in any content: documentation, markdown, README, code comments, GitHub issue titles, or handoff files. Use a plain hyphen (-) instead.
+- When reviewing existing files, scan for em dashes and replace them.
+- Applies to all .md files, HTML templates, comments, and .ai/handoff files.
+- If an AI tool auto-inserts em dashes (e.g. "Title - Subtitle"), fix before committing.
