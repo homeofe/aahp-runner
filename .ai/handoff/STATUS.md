@@ -123,3 +123,5 @@ conflicts at time of opening, no security alerts introduced.
 
 <!-- aahp-gate -->
 _AAHP verify gate: v3.0.2 synced 2026-06-20._
+
+> 2026-06-21 install-hooks.sh: Windows drive-letter path fix propagated from AAHP.
