@@ -7,7 +7,7 @@
 
 ## Active Tasks
 
-### T-013: - Capture LLM token totals in RunMetric (issue #27)
+### T-013: - Capture LLM token totals in RunMetric (issue #49)
 
 > **Status:** in_progress (PR #29 open, awaiting review)
 > **Priority:** medium
@@ -19,7 +19,7 @@ Done when PR #29 is merged and main is on a tagged release that includes
 the new fields. The hub picks them up automatically once the version is
 on npm.
 
-### T-014: - HTTP /abort endpoint for running agents (issue #28)
+### T-014: - HTTP /abort endpoint for running agents (issue #50)
 
 > **Status:** in_progress (PR #30 open, awaiting review)
 > **Priority:** high

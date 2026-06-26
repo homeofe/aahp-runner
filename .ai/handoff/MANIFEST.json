@@ -2,11 +2,11 @@
   "aahp_version": "3.0",
   "project": "aahp-runner",
   "last_session": {
-    "agent": "claude-opus-4-8",
-    "session_id": "cli-1782049168",
-    "timestamp": "2026-06-21T13:39:29Z",
-    "commit": "9fed61b",
-    "phase": "fix",
+    "agent": "cli-tool",
+    "session_id": "cli-1782474178",
+    "timestamp": "2026-06-26T11:42:58Z",
+    "commit": "3b7d33a",
+    "phase": "idle",
     "duration_minutes": 0
   },
   "files": {
@@ -17,8 +17,8 @@
       "summary": "(no summary available)"
     },
     "NEXT_ACTIONS.md": {
-      "checksum": "sha256:a8b69ae79e960b4d4c2cc0b8f5d8d4b58745284ddefbfd09085378acbd0f1309",
-      "updated": "2026-04-30T14:29:00Z",
+      "checksum": "sha256:bde8b9661ea8644077cd65847a9813a0b1dac01376a042827815742ce19c26e9",
+      "updated": "2026-06-26T09:34:54Z",
       "lines": 74,
       "summary": "(no summary available)"
     },
@@ -26,7 +26,7 @@
       "checksum": "sha256:cdf4a8e76f706387d14e7edafe98398b9da6d136f2b58553fbfadf7e36fd4ff4",
       "updated": "2026-04-30T14:02:25Z",
       "lines": 194,
-      "summary": "﻿# aahp-runner: Agent Journal"
+      "summary": "(no summary available)"
     },
     "DASHBOARD.md": {
       "checksum": "sha256:c80de38f9d2658c6c1ad8ccbc326379902781b410373e1413a76bf245178bbc4",
@@ -50,10 +50,10 @@
       "checksum": "sha256:1fee503998c86b617d9ef6b2da1e93750b47e2738f52dfcfcda3c326704baf26",
       "updated": "2026-04-12T13:47:10Z",
       "lines": 132,
-      "summary": "﻿# aahp-runner: Autonomous Multi-Agent Workflow"
+      "summary": "(no summary available)"
     }
   },
-  "quick_context": "(no summary available) (no summary available) ",
+  "quick_context": "(no summary available) (no summary available)",
   "token_budget": {
     "manifest_only": 85,
     "manifest_plus_core": 1882,
