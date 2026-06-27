@@ -2,6 +2,13 @@
 
 > Autonomous agent runner for AAHP v3 projects. Spawns Claude/Copilot agents to work through tasks across all your repos - unattended or on-demand. Includes AI-driven planning, overnight loops, and follow-up chaining.
 
+[![CI](https://github.com/homeofe/aahp-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/homeofe/aahp-runner/actions/workflows/ci.yml)
+[![AAHP Verify](https://github.com/homeofe/aahp-runner/actions/workflows/aahp-verify.yml/badge.svg)](https://github.com/homeofe/aahp-runner/actions/workflows/aahp-verify.yml)
+[![Supply Chain Guard](https://github.com/homeofe/aahp-runner/actions/workflows/supply-chain-guard.yml/badge.svg)](https://github.com/homeofe/aahp-runner/actions/workflows/supply-chain-guard.yml)
+[![Security](https://github.com/homeofe/aahp-runner/actions/workflows/codeql.yml/badge.svg)](https://github.com/homeofe/aahp-runner/actions/workflows/codeql.yml)
+[![npm](https://img.shields.io/npm/v/@elvatis_com/aahp-runner.svg)](https://www.npmjs.com/package/@elvatis_com/aahp-runner)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 ---
 
 ## Changelog
