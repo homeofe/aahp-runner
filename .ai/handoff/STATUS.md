@@ -1,4 +1,4 @@
-﻿# aahp-runner: Current State of the Nation
+# aahp-runner: Current State of the Nation
 
 > Last updated: 2026-06-26 by cli-tool
 > Commit: 5040492 (latest on main); PRs #29 #30 in review
