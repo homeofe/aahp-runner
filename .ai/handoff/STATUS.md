@@ -131,3 +131,5 @@ _AAHP verify gate: v3.0.2 synced 2026-06-20._
 > 2026-06-21 ci(aahp): fix unquoted next_task_id + lint-handoff noreply@ PII exclusion.
 
 > 2026-06-27 ci: migrate npm publish to OIDC trusted publishing (supply-chain-guard pattern); publish + release jobs integrated into ci.yml (semver-tag + workflow_dispatch triggered, --provenance, id-token write, no NPM_TOKEN); removed token-based auto-publish.yml.
+
+> 2026-06-27 ci: re-pin supply-chain-guard to v5.2.37 (be1d718b17cc38e4bce7fa48579b7112e557943b) for the PR-comment crash fix; enabled Dependabot github-actions weekly updates.
