@@ -129,3 +129,5 @@ _AAHP verify gate: v3.0.2 synced 2026-06-20._
 > 2026-06-21 ci: add supply-chain-guard v5.2.35 Action workflow (fail-on critical).
 
 > 2026-06-21 ci(aahp): fix unquoted next_task_id + lint-handoff noreply@ PII exclusion.
+
+> 2026-06-27 ci: migrate npm publish to OIDC trusted publishing (supply-chain-guard pattern); publish + release jobs integrated into ci.yml (semver-tag + workflow_dispatch triggered, --provenance, id-token write, no NPM_TOKEN); removed token-based auto-publish.yml.
