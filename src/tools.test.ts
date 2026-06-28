@@ -240,4 +240,27 @@ describe('path safety', () => {
     )
     expect(result).toBe('safe content')
   })
+
+  it('confines sibling-repo paths to the target repo (no dev-root escape)', async () => {
+    // A path that resolves into the parent dev root (a sibling repo) must not be
+    // readable: the agent is confined to the repo it was dispatched against.
+    const siblingSecret = path.join(
+      path.dirname(tmpRepo),
+      path.basename(tmpRepo) + '-sibling-secret.txt',
+    )
+    fs.writeFileSync(siblingSecret, 'TOP SECRET sibling content')
+    try {
+      const result = await executeTool(
+        'read_file',
+        { path: siblingSecret },
+        tmpRepo,
+        onLog,
+      )
+      // Redirected to repo + basename (which does not exist) => ERROR, never the secret.
+      expect(result).not.toContain('TOP SECRET')
+      expect(result).toContain('ERROR')
+    } finally {
+      fs.rmSync(siblingSecret, { force: true })
+    }
+  })
 })

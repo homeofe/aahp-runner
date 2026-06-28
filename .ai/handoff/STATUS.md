@@ -6,9 +6,11 @@
 > Security fix (2026-06-28): scanner.ts ensureLabel ran `gh label create` via
 > string execSync with an unquoted, git-remote-derived `--repo` value (command
 > injection, found by an aahp-swarm review). It now uses execFileSync (no shell).
-> Open design question for the owner: resolveSafe (tools.ts) deliberately allows
-> the parent dev root (sibling repos) for the agent file tools; decide whether to
-> confine it to the single repo.
+> resolveSafe (tools.ts) previously allowed the parent dev root (sibling repos)
+> for the agent file tools; it is now confined to the single target repo, so an
+> agent can never read or write outside the repository it was dispatched against.
+> A path that escapes the repo is redirected to repo + basename. Regression test
+> "confines sibling-repo paths to the target repo" added in tools.test.ts.
 >
 > **Rule:** This file is rewritten (not appended) at the end of every session.
 > It reflects the *current* reality, not history. History lives in LOG.md.

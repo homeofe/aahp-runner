@@ -239,12 +239,13 @@ function parseCommand(cmd: string): string[] {
 
 function resolveSafe(filePath: string, repoPath: string): string {
   const resolved = path.isAbsolute(filePath) ? filePath : path.resolve(repoPath, filePath)
-  // Allow paths within repo or within parent dev root (one level up)
-  // Use path.sep suffix to prevent prefix collisions (e.g. C:\dev matching C:\developer)
-  const devRoot = path.dirname(repoPath)
+  // Confine all file-tool access to the target repo. A path that escapes the
+  // repo (including into the parent dev root or a sibling repo) is redirected to
+  // repo + basename, so an agent can never read or write outside the repository
+  // it was dispatched against.
+  // Use a path.sep suffix to prevent prefix collisions (e.g. C:\repo matching C:\repo-2).
   const inRepo = resolved === repoPath || resolved.startsWith(repoPath + path.sep)
-  const inDevRoot = resolved === devRoot || resolved.startsWith(devRoot + path.sep)
-  if (!inRepo && !inDevRoot) {
+  if (!inRepo) {
     return path.join(repoPath, path.basename(filePath))
   }
   return resolved
