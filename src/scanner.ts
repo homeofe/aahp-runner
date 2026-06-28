@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import os from 'os'
-import { execSync, spawnSync } from 'child_process'
+import { execSync, execFileSync, spawnSync } from 'child_process'
 import type { AahpManifest, AahpProject, AahpTask } from './types.js'
 
 interface GitHubIssue {
@@ -125,7 +125,9 @@ const STATUS_LABELS: Record<string, { name: string; color: string }> = {
 /** Create a GitHub label if it doesn't exist yet (--force updates existing). */
 function ensureLabel(repo: string, name: string, color: string, cwd: string): void {
   try {
-    execSync(`gh label create "${name}" --color "${color}" --force --repo ${repo}`,
+    // execFileSync passes args directly (no shell), so repo/name/color cannot
+    // inject commands even though repo is derived from the git remote.
+    execFileSync('gh', ['label', 'create', name, '--color', color, '--force', '--repo', repo],
       { cwd, stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 })
   } catch { /* best-effort */ }
 }

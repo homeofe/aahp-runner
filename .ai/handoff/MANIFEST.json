@@ -1,62 +1,62 @@
 {
   "aahp_version": "3.0",
-  "project": "repo",
+  "project": "aahp-runner",
   "last_session": {
     "agent": "claude-opus-4-8",
-    "session_id": "cli-1782541124",
-    "timestamp": "2026-06-27T06:18:46Z",
-    "commit": "765d274",
-    "phase": "implementation",
+    "session_id": "cli-1782638459",
+    "timestamp": "2026-06-28T09:21:00Z",
+    "commit": "b19f2c3",
+    "phase": "fix",
     "duration_minutes": 0
   },
   "files": {
     "STATUS.md": {
-      "checksum": "sha256:e8b780b34820f2ee6b9e08350cf70f966a20720eb8fc0d2afc8faf4a38a618e5",
-      "updated": "2026-06-27T06:18:17Z",
-      "lines": 137,
+      "checksum": "sha256:9c8928e693d20ed2f332897e3b08efbc348407b0bfea13d1204c3094a18cbf52",
+      "updated": "2026-06-28T09:20:34Z",
+      "lines": 144,
       "summary": "(no summary available)"
     },
     "NEXT_ACTIONS.md": {
       "checksum": "sha256:bde8b9661ea8644077cd65847a9813a0b1dac01376a042827815742ce19c26e9",
-      "updated": "2026-06-27T06:16:30Z",
+      "updated": "2026-06-27T03:53:59Z",
       "lines": 74,
       "summary": "(no summary available)"
     },
     "LOG.md": {
       "checksum": "sha256:f76952b5c0c72c9abda510f8574b6bf77240e822e80d9fda78768b5a7e522a9b",
-      "updated": "2026-06-27T06:16:30Z",
+      "updated": "2026-06-28T06:56:55Z",
       "lines": 194,
       "summary": "(no summary available)"
     },
     "DASHBOARD.md": {
       "checksum": "sha256:c80de38f9d2658c6c1ad8ccbc326379902781b410373e1413a76bf245178bbc4",
-      "updated": "2026-06-27T06:16:30Z",
+      "updated": "2026-06-27T03:53:59Z",
       "lines": 112,
       "summary": "(no summary available)"
     },
     "TRUST.md": {
       "checksum": "sha256:0f5c0ac30be972af0f9dfa0f9c36e1a2e23dad1d29de6d61caa5b30348ceaa17",
-      "updated": "2026-06-27T06:16:30Z",
+      "updated": "2026-06-27T03:53:59Z",
       "lines": 76,
       "summary": "(no summary available)"
     },
     "CONVENTIONS.md": {
       "checksum": "sha256:97635258e88ec1719ebea8000b7568697bf212002aa7d5b5f4490a7f67bf6f93",
-      "updated": "2026-06-27T06:16:30Z",
+      "updated": "2026-06-27T03:53:59Z",
       "lines": 120,
       "summary": "(no summary available)"
     },
     "WORKFLOW.md": {
       "checksum": "sha256:17b2ba9bb1562a7bd3d0686bbaa8f1d54101949606e83717fbdfe956feeb4d05",
-      "updated": "2026-06-27T06:16:30Z",
+      "updated": "2026-06-28T06:56:55Z",
       "lines": 132,
       "summary": "(no summary available)"
     }
   },
-  "quick_context": "(no summary available) (no summary available) ",
+  "quick_context": "Security fix: ensureLabel runs gh via execFileSync instead of string execSync (command injection in the --repo value).",
   "token_budget": {
     "manifest_only": 85,
-    "manifest_plus_core": 1983,
-    "full_read": 7558
+    "manifest_plus_core": 2071,
+    "full_read": 7646
   }
 }

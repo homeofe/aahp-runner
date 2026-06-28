@@ -1,7 +1,14 @@
 # aahp-runner: Current State of the Nation
 
-> Last updated: 2026-06-26 by cli-tool
+> Last updated: 2026-06-28 by claude-opus-4-8
 > Commit: 5040492 (latest on main); PRs #29 #30 in review
+>
+> Security fix (2026-06-28): scanner.ts ensureLabel ran `gh label create` via
+> string execSync with an unquoted, git-remote-derived `--repo` value (command
+> injection, found by an aahp-swarm review). It now uses execFileSync (no shell).
+> Open design question for the owner: resolveSafe (tools.ts) deliberately allows
+> the parent dev root (sibling repos) for the agent file tools; decide whether to
+> confine it to the single repo.
 >
 > **Rule:** This file is rewritten (not appended) at the end of every session.
 > It reflects the *current* reality, not history. History lives in LOG.md.
