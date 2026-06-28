@@ -16,7 +16,8 @@ interface GitHubIssue {
 /** Detect owner/repo from git remote origin URL */
 export function detectGitHubRepo(repoPath: string): string | null {
   try {
-    const url = execSync('git remote get-url origin', { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] })
+    const url = execFileSync('git', ['remote', 'get-url', 'origin'],
+      { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'] })
       .toString().trim()
     // https://github.com/owner/repo.git  or  git@github.com:owner/repo.git
     const match = url.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/)
@@ -24,6 +25,24 @@ export function detectGitHubRepo(repoPath: string): string | null {
   } catch {
     return null
   }
+}
+
+/**
+ * Validate that a GitHub repo slug is safe to pass as a CLI argument.
+ * Accepts only "owner/repo" where each segment contains alphanumeric
+ * characters, hyphens, underscores, or dots and does not start with a
+ * hyphen (flag injection). Rejects any shell metacharacter.
+ * Returns the repo string on success, or null if the value is unsafe.
+ */
+export function validateGitHubRepo(repo: string): string | null {
+  // Each segment: must not start with '-', only [A-Za-z0-9._-]
+  const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+  const parts = repo.split('/')
+  if (parts.length !== 2) return null
+  const [owner, name] = parts
+  if (!owner || !name) return null
+  if (!SEGMENT.test(owner) || !SEGMENT.test(name)) return null
+  return repo
 }
 
 /** Map GitHub labels to AAHP task priority.
@@ -146,15 +165,19 @@ export function deduplicateGitHubIssues(
   manifest: AahpManifest,
   onLog?: (msg: string) => void
 ): AahpManifest {
-  const repo = detectGitHubRepo(repoPath)
+  const repo = validateGitHubRepo(detectGitHubRepo(repoPath) ?? '')
   if (!repo) return manifest
 
   let openIssues: GitHubIssue[]
   try {
-    const out = execSync(
-      `gh issue list --repo ${repo} --state open --json number,title,labels --limit 200`,
-      { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 }
-    ).toString()
+    // execFileSync passes args directly (no shell) — repo cannot inject commands
+    const out = execFileSync('gh', [
+      'issue', 'list',
+      '--repo', repo,
+      '--state', 'open',
+      '--json', 'number,title,labels',
+      '--limit', '200',
+    ], { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 }).toString()
     openIssues = JSON.parse(out) as GitHubIssue[]
   } catch {
     return manifest
@@ -227,7 +250,7 @@ export function createMissingGitHubIssues(
   manifest: AahpManifest,
   onLog?: (msg: string) => void
 ): AahpManifest {
-  const repo = detectGitHubRepo(repoPath)
+  const repo = validateGitHubRepo(detectGitHubRepo(repoPath) ?? '')
   if (!repo) return manifest
 
   const tasks = manifest.tasks ?? {}
@@ -241,10 +264,14 @@ export function createMissingGitHubIssues(
   // Pre-flight: fetch open issues to avoid creating duplicates on retried/crashed runs
   let existingOpen: GitHubIssue[] = []
   try {
-    const out = execSync(
-      `gh issue list --repo ${repo} --state open --json number,title --limit 200`,
-      { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 }
-    ).toString()
+    // execFileSync passes args directly (no shell) — repo cannot inject commands
+    const out = execFileSync('gh', [
+      'issue', 'list',
+      '--repo', repo,
+      '--state', 'open',
+      '--json', 'number,title',
+      '--limit', '200',
+    ], { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 }).toString()
     existingOpen = JSON.parse(out) as GitHubIssue[]
   } catch { /* gh unavailable - skip pre-flight, proceed with creation */ }
 
@@ -345,15 +372,19 @@ export function fetchAndImportGitHubIssues(
   manifest: AahpManifest,
   onLog?: (msg: string) => void
 ): AahpManifest {
-  const repo = detectGitHubRepo(repoPath)
+  const repo = validateGitHubRepo(detectGitHubRepo(repoPath) ?? '')
   if (!repo) return manifest
 
   let issues: GitHubIssue[]
   try {
-    const output = execSync(
-      `gh issue list --repo ${repo} --state all --json number,title,body,labels,state,stateReason --limit 100`,
-      { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 }
-    ).toString()
+    // execFileSync passes args directly (no shell) — repo cannot inject commands
+    const output = execFileSync('gh', [
+      'issue', 'list',
+      '--repo', repo,
+      '--state', 'all',
+      '--json', 'number,title,body,labels,state,stateReason',
+      '--limit', '100',
+    ], { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 }).toString()
     issues = (JSON.parse(output) as GitHubIssue[]).map(i => ({ ...i, state: i.state.toLowerCase() as 'open' | 'closed' }))
   } catch {
     // gh not installed, not authenticated, or no GitHub remote - skip silently

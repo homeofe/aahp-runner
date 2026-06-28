@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import { scanProjects, getTopTask, readHandoffFile, buildSystemPrompt, saveManifest } from './scanner.js'
+import { scanProjects, getTopTask, readHandoffFile, buildSystemPrompt, saveManifest, validateGitHubRepo } from './scanner.js'
 import type { AahpManifest, AahpProject, AahpTask } from './types.js'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -326,5 +326,62 @@ describe('saveManifest', () => {
     // Should round-trip correctly
     const parsed = JSON.parse(written)
     expect(parsed.project).toBe('saved-project')
+  })
+})
+
+// ── validateGitHubRepo (command-injection regression) ────────────────────────
+
+describe('validateGitHubRepo', () => {
+  it('accepts a well-formed owner/repo slug', () => {
+    expect(validateGitHubRepo('homeofe/aahp-runner')).toBe('homeofe/aahp-runner')
+  })
+
+  it('accepts slugs with dots and underscores', () => {
+    expect(validateGitHubRepo('my.org/my_repo.js')).toBe('my.org/my_repo.js')
+  })
+
+  it('rejects a slug with a shell semicolon', () => {
+    expect(validateGitHubRepo('owner/repo;rm -rf /')).toBeNull()
+  })
+
+  it('rejects a slug with backtick command substitution', () => {
+    expect(validateGitHubRepo('owner/repo`id`')).toBeNull()
+  })
+
+  it('rejects a slug with dollar-sign command substitution', () => {
+    expect(validateGitHubRepo('owner/repo$(whoami)')).toBeNull()
+  })
+
+  it('rejects a slug with pipe metacharacter', () => {
+    expect(validateGitHubRepo('owner/repo|cat /etc/passwd')).toBeNull()
+  })
+
+  it('rejects a slug with ampersand metacharacter', () => {
+    expect(validateGitHubRepo('owner/repo&touch /tmp/pwned')).toBeNull()
+  })
+
+  it('rejects a slug missing the slash separator', () => {
+    expect(validateGitHubRepo('just-owner')).toBeNull()
+  })
+
+  it('rejects an empty string', () => {
+    expect(validateGitHubRepo('')).toBeNull()
+  })
+
+  it('rejects a slug with more than one slash', () => {
+    expect(validateGitHubRepo('owner/repo/extra')).toBeNull()
+  })
+
+  it('rejects an owner segment starting with a hyphen (flag injection)', () => {
+    expect(validateGitHubRepo('-bad/repo')).toBeNull()
+  })
+
+  it('rejects a repo segment starting with a hyphen (flag injection)', () => {
+    expect(validateGitHubRepo('owner/-bad')).toBeNull()
+  })
+
+  it('rejects a crafted slug matching the reported attack vector', () => {
+    // Attack: git remote URL contains test$(malicious-command)/repo.git
+    expect(validateGitHubRepo('test$(malicious-command)/repo')).toBeNull()
   })
 })

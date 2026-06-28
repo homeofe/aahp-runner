@@ -1,16 +1,24 @@
 # aahp-runner: Current State of the Nation
 
 > Last updated: 2026-06-28 by claude-opus-4-8
-> Commit: 5040492 (latest on main); PRs #29 #30 in review
+> Commit: 9068353 (latest on main)
 >
-> Security fix (2026-06-28): scanner.ts ensureLabel ran `gh label create` via
-> string execSync with an unquoted, git-remote-derived `--repo` value (command
-> injection, found by an aahp-swarm review). It now uses execFileSync (no shell).
-> resolveSafe (tools.ts) previously allowed the parent dev root (sibling repos)
-> for the agent file tools; it is now confined to the single target repo, so an
-> agent can never read or write outside the repository it was dispatched against.
-> A path that escapes the repo is redirected to repo + basename. Regression test
-> "confines sibling-repo paths to the target repo" added in tools.test.ts.
+> Security fix (2026-06-28, this session): scanner.ts had three execSync calls
+> that interpolated a git-remote-derived `owner/repo` slug directly into shell
+> command strings (gh issue list --repo ${repo} ...), allowing command injection
+> via a crafted .git/config remote URL containing shell metacharacters such as
+> $(), backticks, semicolons, or pipes. Fix: (1) added validateGitHubRepo()
+> which rejects any slug not matching the strict allowlist [A-Za-z0-9._-] with
+> no leading hyphen on either segment; (2) all three call sites now use
+> execFileSync with arguments passed as an array (no shell). detectGitHubRepo
+> also switched from execSync to execFileSync. Regression tests added in
+> scanner.test.ts (13 new validateGitHubRepo cases). 228 tests pass, 0 build
+> warnings.
+>
+> Security fix (2026-06-28, prior session): scanner.ts ensureLabel ran
+> `gh label create` via string execSync with an unquoted, git-remote-derived
+> `--repo` value (command injection). It now uses execFileSync (no shell).
+> resolveSafe (tools.ts) confined to the single target repo.
 >
 > **Rule:** This file is rewritten (not appended) at the end of every session.
 > It reflects the *current* reality, not history. History lives in LOG.md.
