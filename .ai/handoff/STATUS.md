@@ -152,3 +152,5 @@ _AAHP verify gate: v3.0.2 synced 2026-06-20._
 > 2026-06-27 ci: re-pin supply-chain-guard to v5.2.37 (be1d718b17cc38e4bce7fa48579b7112e557943b) for the PR-comment crash fix; enabled Dependabot github-actions weekly updates.
 
 > 2026-06-27 docs(readme): add AAHP/CI status badges to README top (CI, AAHP Verify, Supply Chain Guard, Security/CodeQL, npm, License); only badges for workflows that exist in .github/workflows/ were added.
+
+> 2026-06-30 verify: added reviewed expiring PII allowlist, rolled out from AAHP v3.2.0.
