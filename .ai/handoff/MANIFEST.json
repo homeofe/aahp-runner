@@ -2,18 +2,18 @@
   "aahp_version": "3.0",
   "project": "aahp-runner",
   "last_session": {
-    "agent": "claude-opus-4-8",
-    "session_id": "cli-1782817953",
-    "timestamp": "2026-06-30T11:12:34Z",
-    "commit": "ab194e5",
+    "agent": "claude-fable-5",
+    "session_id": "cli-1783072030",
+    "timestamp": "2026-07-03T09:47:10Z",
+    "commit": "a114816",
     "phase": "fix",
     "duration_minutes": 0
   },
   "files": {
     "STATUS.md": {
-      "checksum": "sha256:5e3249c950b4eca99cae5bd5492ae1aca75c201f241165d928c3251515a673a0",
-      "updated": "2026-06-30T11:12:33Z",
-      "lines": 158,
+      "checksum": "sha256:aae2c8fee9bcc37baab6abac333469e915bc0e051d1491ca72688bc2426e1c4f",
+      "updated": "2026-07-03T09:47:10Z",
+      "lines": 159,
       "summary": "(no summary available)"
     },
     "NEXT_ACTIONS.md": {
@@ -62,8 +62,8 @@
   "quick_context": "(no summary available) (no summary available) ",
   "token_budget": {
     "manifest_only": 85,
-    "manifest_plus_core": 2214,
-    "full_read": 7797
+    "manifest_plus_core": 2268,
+    "full_read": 7851
   }
   ,"next_task_id": "4"
   ,"tasks": {"T-001":{"title":"[T-014] - HTTP /abort endpoint for running agents","status":"in_progress","priority":"medium","depends_on":[],"created":"2026-06-28T10:10:32.124Z","notes":"**AAHP Task:** `T-014`  \n**Status:** in_progress  \n**Priority:** medium  \n\n\n\n\n---\n*Auto-created from AAHP manifest · project: aahp-runner*","github_issue":50,"github_repo":"homeofe/aahp-runner"},"T-002":{"title":"[T-013] - Capture LLM token totals in RunMetric","status":"in_progress","priority":"medium","depends_on":[],"created":"2026-06-28T10:10:32.124Z","notes":"**AAHP Task:** `T-013`  \n**Status:** in_progress  \n**Priority:** medium  \n\n\n\n\n---\n*Auto-created from AAHP manifest · project: aahp-runner*","github_issue":49,"github_repo":"homeofe/aahp-runner"},"T-003":{"title":"aahp run should publish live agents to sessions.json (consumed by aahp-hub live view)","status":"ready","priority":"medium","depends_on":[],"created":"2026-06-28T10:10:32.125Z","notes":"## What is happening\n\n`aahp run` spawns N agents in parallel. The terminal status board renders them\nlive (in-memory). The control endpoint advertises its port via\n`~/.aahp/sessions.json`. **But the `sessions: []` array stays empty** while\nthe agents are running.\n\nThat makes the hub think no agents are running even when 16 are mid-flight.\nRepro from a real session this evening:\n\n```\n$ cat ~/.aahp/sessions.json\n{ \"updatedAt\": \"2026-04-25T13:01:21.714Z\",\n  \"sessions\": [],\n  \"controlPort\": 48237 }\n","github_issue":31,"github_repo":"homeofe/aahp-runner"}}
