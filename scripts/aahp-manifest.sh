@@ -76,7 +76,18 @@ esac
 
 # ─── Detect project metadata ─────────────────────────────────
 
-PROJECT_NAME=$(basename "$(cd "$PROJECT_ROOT" && pwd)")
+# Project name: PRESERVE the existing MANIFEST.json "project" value on
+# regeneration; only derive it from the directory basename on first-ever
+# generation. Without this, regenerating inside a differently-named checkout
+# (e.g. the gate-sync bot's mktemp working copy, or any tarball/CI dir) would
+# overwrite a consumer's real project name with the temp-dir basename.
+PROJECT_NAME=""
+if [ -f "$HANDOFF_DIR/MANIFEST.json" ]; then
+    PROJECT_NAME="$(aahp_manifest_field "$HANDOFF_DIR/MANIFEST.json" "project")"
+fi
+if [ -z "$PROJECT_NAME" ]; then
+    PROJECT_NAME=$(basename "$(cd "$PROJECT_ROOT" && pwd)")
+fi
 COMMIT=$(cd "$PROJECT_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -145,16 +156,16 @@ if [ -f "$HANDOFF_DIR/MANIFEST.json" ]; then
     # Extract tasks block and next_task_id if they exist
     if command -v node &>/dev/null; then
         EXISTING=$(node -e "
-            const m = JSON.parse(require('fs').readFileSync('$HANDOFF_DIR/MANIFEST.json', 'utf8'));
+            const m = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));
             if (m.tasks) process.stdout.write(JSON.stringify(m.tasks));
-        " 2>/dev/null || true)
+        " "$HANDOFF_DIR/MANIFEST.json" 2>/dev/null || true)
         if [ -n "$EXISTING" ]; then
             TASKS_JSON="$EXISTING"
         fi
         EXISTING_ID=$(node -e "
-            const m = JSON.parse(require('fs').readFileSync('$HANDOFF_DIR/MANIFEST.json', 'utf8'));
+            const m = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));
             if (m.next_task_id) process.stdout.write(String(m.next_task_id));
-        " 2>/dev/null || true)
+        " "$HANDOFF_DIR/MANIFEST.json" 2>/dev/null || true)
         if [ -n "$EXISTING_ID" ]; then
             NEXT_TASK_ID="$EXISTING_ID"
         fi
@@ -203,3 +214,5 @@ if [ "$QUIET" = false ]; then
     echo "MANIFEST.json generated: $FILES_FOUND files indexed, checksums current."
     echo "  Token budget: manifest=$MANIFEST_TOKENS, core=$CORE_TOKENS, full=$FULL_TOKENS"
 fi
+
+
