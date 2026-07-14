@@ -3,58 +3,58 @@
   "project": "aahp-runner",
   "last_session": {
     "agent": "claude-opus-4-8",
-    "session_id": "cli-1784009642",
-    "timestamp": "2026-07-14T06:14:02Z",
-    "commit": "8f07bae",
-    "phase": "implementation",
+    "session_id": "cli-1784032364",
+    "timestamp": "2026-07-14T12:32:47Z",
+    "commit": "c735b68",
+    "phase": "fix",
     "duration_minutes": 0
   },
   "files": {
     "STATUS.md": {
-      "checksum": "sha256:4523530898c82d4bb19cb28194602abfc242197ac7e7564831b90f262536326b",
-      "updated": "2026-07-14T06:14:02Z",
-      "lines": 163,
+      "checksum": "sha256:2e612b542dfe8ed59fe2622ae439422b26c42348eba5b4da0c05af44e6dc1deb",
+      "updated": "2026-07-14T12:32:29Z",
+      "lines": 165,
       "summary": "(no summary available)"
     },
     "NEXT_ACTIONS.md": {
       "checksum": "sha256:bde8b9661ea8644077cd65847a9813a0b1dac01376a042827815742ce19c26e9",
-      "updated": "2026-07-14T06:14:01Z",
+      "updated": "2026-07-14T12:29:52Z",
       "lines": 74,
       "summary": "(no summary available)"
     },
     "LOG.md": {
       "checksum": "sha256:f76952b5c0c72c9abda510f8574b6bf77240e822e80d9fda78768b5a7e522a9b",
-      "updated": "2026-07-14T06:14:01Z",
+      "updated": "2026-07-14T12:29:52Z",
       "lines": 194,
       "summary": "(no summary available)"
     },
     "DASHBOARD.md": {
       "checksum": "sha256:c80de38f9d2658c6c1ad8ccbc326379902781b410373e1413a76bf245178bbc4",
-      "updated": "2026-07-14T06:14:01Z",
+      "updated": "2026-07-14T12:29:52Z",
       "lines": 112,
       "summary": "(no summary available)"
     },
     "TRUST.md": {
       "checksum": "sha256:0f5c0ac30be972af0f9dfa0f9c36e1a2e23dad1d29de6d61caa5b30348ceaa17",
-      "updated": "2026-07-14T06:14:01Z",
+      "updated": "2026-07-14T12:29:52Z",
       "lines": 76,
       "summary": "(no summary available)"
     },
     "CONVENTIONS.md": {
       "checksum": "sha256:97635258e88ec1719ebea8000b7568697bf212002aa7d5b5f4490a7f67bf6f93",
-      "updated": "2026-07-14T06:14:01Z",
+      "updated": "2026-07-14T12:29:52Z",
       "lines": 120,
       "summary": "(no summary available)"
     },
     "WORKFLOW.md": {
       "checksum": "sha256:17b2ba9bb1562a7bd3d0686bbaa8f1d54101949606e83717fbdfe956feeb4d05",
-      "updated": "2026-07-14T06:14:01Z",
+      "updated": "2026-07-14T12:29:52Z",
       "lines": 132,
       "summary": "(no summary available)"
     },
     "pii-allowlist.json": {
       "checksum": "sha256:7c1051f6e2bc3943b7c1dbe4da229694455681b8875a346c99279e555edb733f",
-      "updated": "2026-07-14T06:14:01Z",
+      "updated": "2026-07-14T12:29:52Z",
       "lines": 4,
       "summary": "{"
     }
@@ -62,8 +62,8 @@
   "quick_context": "(no summary available) (no summary available) ",
   "token_budget": {
     "manifest_only": 85,
-    "manifest_plus_core": 2355,
-    "full_read": 7938
+    "manifest_plus_core": 2400,
+    "full_read": 7983
   }
   ,"next_task_id": "4"
   ,"tasks": {"T-001":{"title":"[T-014] - HTTP /abort endpoint for running agents","status":"in_progress","priority":"medium","depends_on":[],"created":"2026-06-28T10:10:32.124Z","notes":"**AAHP Task:** `T-014`  \n**Status:** in_progress  \n**Priority:** medium  \n\n\n\n\n---\n*Auto-created from AAHP manifest · project: aahp-runner*","github_issue":50,"github_repo":"homeofe/aahp-runner"},"T-002":{"title":"[T-013] - Capture LLM token totals in RunMetric","status":"in_progress","priority":"medium","depends_on":[],"created":"2026-06-28T10:10:32.124Z","notes":"**AAHP Task:** `T-013`  \n**Status:** in_progress  \n**Priority:** medium  \n\n\n\n\n---\n*Auto-created from AAHP manifest · project: aahp-runner*","github_issue":49,"github_repo":"homeofe/aahp-runner"},"T-003":{"title":"aahp run should publish live agents to sessions.json (consumed by aahp-hub live view)","status":"ready","priority":"medium","depends_on":[],"created":"2026-06-28T10:10:32.125Z","notes":"## What is happening\n\n`aahp run` spawns N agents in parallel. The terminal status board renders them\nlive (in-memory). The control endpoint advertises its port via\n`~/.aahp/sessions.json`. **But the `sessions: []` array stays empty** while\nthe agents are running.\n\nThat makes the hub think no agents are running even when 16 are mid-flight.\nRepro from a real session this evening:\n\n```\n$ cat ~/.aahp/sessions.json\n{ \"updatedAt\": \"2026-04-25T13:01:21.714Z\",\n  \"sessions\": [],\n  \"controlPort\": 48237 }\n","github_issue":31,"github_repo":"homeofe/aahp-runner"}}
