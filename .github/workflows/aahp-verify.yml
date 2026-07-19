@@ -8,7 +8,7 @@
 #   Layer 3: commit-pointer freshness
 #   Layer 4: TRUST-TTL expiry (advisory)
 #
-# The CLI is pinned in devDependencies (@elvatis_com/aahp, exact 3.8.0) and invoked
+# The CLI is pinned in devDependencies (@elvatis_com/aahp, exact 3.8.1) and invoked
 # via `npx --no-install` so CI runs the exact version the repo pins, with no network
 # install at run time.
 #
