@@ -1,8 +1,37 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import { scanProjects, getTopTask, readHandoffFile, buildSystemPrompt, saveManifest, validateGitHubRepo } from './scanner.js'
+
+// ── Mock for child_process (createMissingGitHubIssues shells out to git/gh) ──
+// Must be declared before the './scanner.js' import below so the mock is in
+// place before scanner.ts's own `import { execFileSync, spawnSync } from
+// 'child_process'` resolves.
+interface MockCall { cmd: string; args: string[] }
+let _execFileSyncMockImpl: ((cmd: string, args: string[]) => string) | null = null
+let _spawnSyncMockImpl: ((cmd: string, args: string[]) => { status: number; stdout: string; stderr: string }) | null = null
+let _spawnSyncCalls: MockCall[] = []
+
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>()
+  return {
+    ...actual,
+    execFileSync: (cmd: string, args: string[], opts?: unknown) => {
+      if (_execFileSyncMockImpl) return _execFileSyncMockImpl(cmd, args)
+      return actual.execFileSync(cmd, args, opts as never)
+    },
+    spawnSync: (cmd: string, args: string[], opts?: unknown) => {
+      _spawnSyncCalls.push({ cmd, args })
+      if (_spawnSyncMockImpl) return _spawnSyncMockImpl(cmd, args)
+      return actual.spawnSync(cmd, args, opts as never)
+    },
+  }
+})
+
+import {
+  scanProjects, getTopTask, readHandoffFile, buildSystemPrompt, saveManifest,
+  validateGitHubRepo, createMissingGitHubIssues, normalizeTitle, titleSimilarity,
+} from './scanner.js'
 import type { AahpManifest, AahpProject, AahpTask } from './types.js'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -72,6 +101,9 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true })
+  _execFileSyncMockImpl = null
+  _spawnSyncMockImpl = null
+  _spawnSyncCalls = []
 })
 
 // ── scanProjects ─────────────────────────────────────────────────────────────
@@ -383,5 +415,130 @@ describe('validateGitHubRepo', () => {
   it('rejects a crafted slug matching the reported attack vector', () => {
     // Attack: git remote URL contains test$(malicious-command)/repo.git
     expect(validateGitHubRepo('test$(malicious-command)/repo')).toBeNull()
+  })
+})
+
+// ── normalizeTitle / titleSimilarity (issue #626 regression) ──────────────────
+// A bare "#NNN" issue-reference token used to survive normalization and get
+// counted as a word, which could depress Jaccard similarity below the 0.85
+// dedup threshold for two titles that are otherwise identical.
+
+describe('normalizeTitle', () => {
+  it('strips a bare "#NNN" token', () => {
+    expect(normalizeTitle('Fix login redirect bug #1010')).toBe('fix login redirect bug')
+  })
+
+  it('still strips the existing "(issue #N)" annotation', () => {
+    expect(normalizeTitle('Fix login redirect bug (issue #1010)')).toBe('fix login redirect bug')
+  })
+
+  it('still strips a leading [T-NNN] prefix', () => {
+    expect(normalizeTitle('[T-077] Fix login redirect bug')).toBe('fix login redirect bug')
+  })
+})
+
+describe('titleSimilarity', () => {
+  it('scores two titles as identical once a trailing "#NNN" is normalized away', () => {
+    // Before the #626 fix, "1010" survived normalization as its own word, so
+    // the two titles below scored 4/5 = 0.8, just under the 0.85 dedup
+    // threshold used by both deduplicateGitHubIssues and
+    // createMissingGitHubIssues's pre-flight check.
+    const similarity = titleSimilarity('Fix login redirect bug #1010', 'Fix login redirect bug')
+    expect(similarity).toBe(1)
+  })
+})
+
+// ── createMissingGitHubIssues (issue #626 regression) ─────────────────────────
+// The pre-flight dedup check used to query `gh issue list --state open` only,
+// so a task whose matching issue had since been closed was invisible to it and
+// a fresh duplicate got filed. It should now see closed issues too and reopen
+// the existing one instead of creating a duplicate.
+
+describe('createMissingGitHubIssues', () => {
+  function setupRepo(): { repoPath: string; handoffDir: string } {
+    const repoPath = path.join(tmpDir, 'repo')
+    const handoffDir = path.join(repoPath, '.ai', 'handoff')
+    fs.mkdirSync(handoffDir, { recursive: true })
+    return { repoPath, handoffDir }
+  }
+
+  function mockGh(existingIssues: Array<{ number: number; title: string; state: 'OPEN' | 'CLOSED' }>): void {
+    _execFileSyncMockImpl = (cmd, args) => {
+      if (cmd === 'git' && args[0] === 'remote') return 'https://github.com/homeofe/aahp-runner.git\n'
+      if (cmd === 'gh' && args[0] === 'issue' && args[1] === 'list') return JSON.stringify(existingIssues)
+      if (cmd === 'gh' && args[0] === 'label') return ''
+      throw new Error(`unexpected execFileSync call in test: ${cmd} ${args.join(' ')}`)
+    }
+    _spawnSyncMockImpl = (_cmd, args) => {
+      if (args[0] === 'issue' && args[1] === 'reopen') return { status: 0, stdout: '', stderr: '' }
+      if (args[0] === 'issue' && args[1] === 'create') {
+        return { status: 0, stdout: 'https://github.com/homeofe/aahp-runner/issues/999\n', stderr: '' }
+      }
+      return { status: 0, stdout: '', stderr: '' }
+    }
+  }
+
+  it('reopens a closed matching issue instead of filing a duplicate', () => {
+    const { repoPath, handoffDir } = setupRepo()
+    mockGh([{ number: 42, title: '[T-001] Fix flaky retry test', state: 'CLOSED' }])
+
+    const manifest = makeManifest({
+      tasks: { 'T-001': makeTask({ title: 'Fix flaky retry test', status: 'ready' }) },
+    })
+
+    const updated = createMissingGitHubIssues(repoPath, handoffDir, manifest)
+
+    expect(updated.tasks!['T-001']!.github_issue).toBe(42)
+    const reopenCalls = _spawnSyncCalls.filter(c => c.args[0] === 'issue' && c.args[1] === 'reopen')
+    const createCalls = _spawnSyncCalls.filter(c => c.args[0] === 'issue' && c.args[1] === 'create')
+    expect(reopenCalls).toHaveLength(1)
+    expect(reopenCalls[0]!.args).toContain('42')
+    expect(createCalls).toHaveLength(0)
+  })
+
+  it('still links to (and does not touch) an open matching issue', () => {
+    const { repoPath, handoffDir } = setupRepo()
+    mockGh([{ number: 42, title: '[T-001] Fix flaky retry test', state: 'OPEN' }])
+
+    const manifest = makeManifest({
+      tasks: { 'T-001': makeTask({ title: 'Fix flaky retry test', status: 'ready' }) },
+    })
+
+    const updated = createMissingGitHubIssues(repoPath, handoffDir, manifest)
+
+    expect(updated.tasks!['T-001']!.github_issue).toBe(42)
+    expect(_spawnSyncCalls.filter(c => c.args[0] === 'issue' && (c.args[1] === 'reopen' || c.args[1] === 'create'))).toHaveLength(0)
+  })
+
+  it('matches an open issue via title fallback even with a stray "#NNN" reference, and does not create a duplicate', () => {
+    const { repoPath, handoffDir } = setupRepo()
+    // No T-077 tag in the existing issue's title, so this only matches through
+    // the title-similarity fallback, not the task-ID shortcut - which is
+    // exactly the path the #NNN-stripping fix in normalizeTitle affects.
+    mockGh([{ number: 555, title: 'Fix login redirect bug #1010', state: 'OPEN' }])
+
+    const manifest = makeManifest({
+      tasks: { 'T-077': makeTask({ title: 'Fix login redirect bug', status: 'ready' }) },
+    })
+
+    const updated = createMissingGitHubIssues(repoPath, handoffDir, manifest)
+
+    expect(updated.tasks!['T-077']!.github_issue).toBe(555)
+    expect(_spawnSyncCalls.filter(c => c.args[0] === 'issue' && c.args[1] === 'create')).toHaveLength(0)
+  })
+
+  it('creates a new issue when no open or closed match exists', () => {
+    const { repoPath, handoffDir } = setupRepo()
+    mockGh([])
+
+    const manifest = makeManifest({
+      tasks: { 'T-002': makeTask({ title: 'Totally unrelated task', status: 'ready' }) },
+    })
+
+    const updated = createMissingGitHubIssues(repoPath, handoffDir, manifest)
+
+    expect(updated.tasks!['T-002']!.github_issue).toBe(999)
+    const createCalls = _spawnSyncCalls.filter(c => c.args[0] === 'issue' && c.args[1] === 'create')
+    expect(createCalls).toHaveLength(1)
   })
 })

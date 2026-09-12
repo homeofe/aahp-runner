@@ -97,20 +97,24 @@ function extractTaskIdFromIssueTitle(title: string): string | undefined {
 }
 
 /** Normalize a task/issue title for fuzzy matching: lowercase, strip T-NNN prefix,
- *  strip "(issue #N)" annotations, collapse non-alphanumeric runs to spaces. */
-function normalizeTitle(title: string): string {
+ *  strip "(issue #N)" annotations, strip bare "#N" issue-reference tokens (these
+ *  renumber across repos and otherwise survive into the word set and depress
+ *  similarity between titles that are otherwise identical), collapse
+ *  non-alphanumeric runs to spaces. */
+export function normalizeTitle(title: string): string {
   return title
     .toLowerCase()
     .replace(/^\[T-\d+\]\s*/i, '')
     .replace(/\(issue #\d+\)/gi, '')
+    .replace(/#\d+\b/g, '')
     .replace(/[^a-z0-9 ]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
 /** Jaccard word-overlap similarity between two task titles (after normalization).
- *  Returns 0..1; >= 0.55 is a good threshold for fuzzy matching. */
-function titleSimilarity(a: string, b: string): number {
+ *  Returns 0..1; the callers here use 0.85 as their dedup threshold. */
+export function titleSimilarity(a: string, b: string): number {
   const words = (s: string) => new Set(normalizeTitle(s).split(' ').filter(w => w.length >= 3))
   const wa = words(a)
   const wb = words(b)
@@ -261,18 +265,24 @@ export function createMissingGitHubIssues(
 
   if (toCreate.length === 0) return manifest
 
-  // Pre-flight: fetch open issues to avoid creating duplicates on retried/crashed runs
-  let existingOpen: GitHubIssue[] = []
+  // Pre-flight: fetch OPEN AND CLOSED issues to avoid creating duplicates on
+  // retried/crashed runs. Querying open-only here meant a task whose matching
+  // issue had since been closed was invisible to this check, so a fresh
+  // duplicate got filed for work that already had a (closed) issue.
+  let existingIssues: GitHubIssue[] = []
   try {
-    // execFileSync passes args directly (no shell) — repo cannot inject commands
+    // execFileSync passes args directly (no shell) - repo cannot inject commands
     const out = execFileSync('gh', [
       'issue', 'list',
       '--repo', repo,
-      '--state', 'open',
-      '--json', 'number,title',
+      '--state', 'all',
+      '--json', 'number,title,state',
       '--limit', '200',
     ], { cwd: repoPath, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 }).toString()
-    existingOpen = JSON.parse(out) as GitHubIssue[]
+    existingIssues = (JSON.parse(out) as GitHubIssue[]).map(i => ({
+      ...i,
+      state: (i.state as string).toLowerCase() as 'open' | 'closed',
+    }))
   } catch { /* gh unavailable - skip pre-flight, proceed with creation */ }
 
   const PREFLIGHT_THRESHOLD = 0.85
@@ -295,15 +305,31 @@ export function createMissingGitHubIssues(
 
     const title = `[${taskId}] ${task.title}`
 
-    // Pre-flight dedup: skip creation if an open issue with same task-ID or near-identical title already exists
-    if (existingOpen.length > 0) {
-      const clash = existingOpen.find(i => {
+    // Pre-flight dedup: skip creation if an issue (open or closed) with the same
+    // task-ID or near-identical title already exists.
+    if (existingIssues.length > 0) {
+      const clash = existingIssues.find(i => {
         const iTaskId = extractTaskIdFromIssueTitle(i.title)
         if (iTaskId && iTaskId === taskId) return true
         return titleSimilarity(i.title, title) >= PREFLIGHT_THRESHOLD
       })
       if (clash) {
-        onLog?.(`[DEDUP] ${taskId} skipped — open issue #${clash.number} already covers this task: "${clash.title}"`)
+        if (clash.state === 'closed') {
+          // A closed match is not the same as no match: silently stamping
+          // task.github_issue onto a dead issue number would either hide the
+          // task forever or (once it moves again) get a duplicate filed anyway.
+          // Reopen the existing issue instead of creating a second one.
+          onLog?.(`[DEDUP] ${taskId} matches closed issue #${clash.number} - reopening it instead of filing a duplicate: "${clash.title}"`)
+          try {
+            spawnSync('gh', [
+              'issue', 'reopen', String(clash.number),
+              '--repo', repo,
+              '--comment', `Reopened automatically: AAHP task \`${taskId}\` (status: ${task.status}) still references this work. If it is genuinely finished, close it again and clear the task's github_issue link.`,
+            ], { cwd: repoPath, timeout: 15000, encoding: 'utf8' })
+          } catch { /* best-effort */ }
+        } else {
+          onLog?.(`[DEDUP] ${taskId} skipped - open issue #${clash.number} already covers this task: "${clash.title}"`)
+        }
         task.github_issue = clash.number
         task.github_repo = repo
         changed = true
